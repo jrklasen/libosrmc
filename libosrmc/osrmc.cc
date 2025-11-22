@@ -342,7 +342,7 @@ float osrmc_table_response_distance(osrmc_table_response_t response, unsigned lo
 
   return distance;
 } catch (const std::exception& e) {
-  *error = new osrmc_error{e.what()};
+  osrmc_error_from_exception(e, error);
   return INFINITY;
 }
 
@@ -370,9 +370,11 @@ void osrmc_match_params_destruct(osrmc_match_params_t params) {
   delete reinterpret_cast<osrm::MatchParameters*>(params);
 }
 
-void osrmc_nearest_set_number_of_results(osrmc_nearest_params_t params, unsigned n) {
+void osrmc_nearest_set_number_of_results(osrmc_nearest_params_t params, unsigned n, osrmc_error_t* error) try {
   auto* params_typed = reinterpret_cast<osrm::NearestParameters*>(params);
   params_typed->number_of_results = n;
+} catch (const std::exception& e) {
+  osrmc_error_from_exception(e, error);
 }
 
 void osrmc_match_params_add_timestamp(osrmc_match_params_t params, unsigned timestamp, osrmc_error_t* error) try {
