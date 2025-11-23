@@ -1,4 +1,5 @@
 #include <stdbool.h>
+#include <stddef.h>
 
 #ifndef OSRMC_H_
 #define OSRMC_H_
@@ -149,11 +150,17 @@ typedef struct osrmc_table_params* osrmc_table_params_t;
 typedef struct osrmc_table_annotations* osrmc_table_annotations_t;
 typedef struct osrmc_nearest_params* osrmc_nearest_params_t;
 typedef struct osrmc_match_params* osrmc_match_params_t;
+typedef struct osrmc_trip_params* osrmc_trip_params_t;
+typedef struct osrmc_tile_params* osrmc_tile_params_t;
 
 /* Service-specific responses */
 
 typedef struct osrmc_route_response* osrmc_route_response_t;
 typedef struct osrmc_table_response* osrmc_table_response_t;
+typedef struct osrmc_nearest_response* osrmc_nearest_response_t;
+typedef struct osrmc_match_response* osrmc_match_response_t;
+typedef struct osrmc_trip_response* osrmc_trip_response_t;
+typedef struct osrmc_tile_response* osrmc_tile_response_t;
 
 /* Service-specific callbacks */
 
@@ -195,6 +202,24 @@ OSRMC_API void osrmc_route_response_destruct(osrmc_route_response_t response);
 OSRMC_API float osrmc_route_response_distance(osrmc_route_response_t response, osrmc_error_t* error);
 OSRMC_API float osrmc_route_response_duration(osrmc_route_response_t response, osrmc_error_t* error);
 
+/* Enhanced Route service extractors */
+OSRMC_API unsigned osrmc_route_response_alternative_count(osrmc_route_response_t response, osrmc_error_t* error);
+OSRMC_API float osrmc_route_response_distance_at(osrmc_route_response_t response, unsigned route_index, osrmc_error_t* error);
+OSRMC_API float osrmc_route_response_duration_at(osrmc_route_response_t response, unsigned route_index, osrmc_error_t* error);
+OSRMC_API const char* osrmc_route_response_geometry_polyline(osrmc_route_response_t response, unsigned route_index, osrmc_error_t* error);
+OSRMC_API unsigned osrmc_route_response_geometry_coordinate_count(osrmc_route_response_t response, unsigned route_index, osrmc_error_t* error);
+OSRMC_API float osrmc_route_response_geometry_coordinate_latitude(osrmc_route_response_t response, unsigned route_index, unsigned coord_index, osrmc_error_t* error);
+OSRMC_API float osrmc_route_response_geometry_coordinate_longitude(osrmc_route_response_t response, unsigned route_index, unsigned coord_index, osrmc_error_t* error);
+OSRMC_API unsigned osrmc_route_response_waypoint_count(osrmc_route_response_t response, osrmc_error_t* error);
+OSRMC_API float osrmc_route_response_waypoint_latitude(osrmc_route_response_t response, unsigned index, osrmc_error_t* error);
+OSRMC_API float osrmc_route_response_waypoint_longitude(osrmc_route_response_t response, unsigned index, osrmc_error_t* error);
+OSRMC_API const char* osrmc_route_response_waypoint_name(osrmc_route_response_t response, unsigned index, osrmc_error_t* error);
+OSRMC_API unsigned osrmc_route_response_leg_count(osrmc_route_response_t response, unsigned route_index, osrmc_error_t* error);
+OSRMC_API unsigned osrmc_route_response_step_count(osrmc_route_response_t response, unsigned route_index, unsigned leg_index, osrmc_error_t* error);
+OSRMC_API float osrmc_route_response_step_distance(osrmc_route_response_t response, unsigned route_index, unsigned leg_index, unsigned step_index, osrmc_error_t* error);
+OSRMC_API float osrmc_route_response_step_duration(osrmc_route_response_t response, unsigned route_index, unsigned leg_index, unsigned step_index, osrmc_error_t* error);
+OSRMC_API const char* osrmc_route_response_step_instruction(osrmc_route_response_t response, unsigned route_index, unsigned leg_index, unsigned step_index, osrmc_error_t* error);
+
 /* Table service */
 
 OSRMC_API osrmc_table_annotations_t osrmc_table_annotations_construct(osrmc_error_t* error);
@@ -217,17 +242,71 @@ OSRMC_API float osrmc_table_response_duration(osrmc_table_response_t response, u
 OSRMC_API float osrmc_table_response_distance(osrmc_table_response_t response, unsigned long from, unsigned long to,
                                               osrmc_error_t* error);
 
+/* Enhanced Table service extractors */
+OSRMC_API unsigned osrmc_table_response_source_count(osrmc_table_response_t response, osrmc_error_t* error);
+OSRMC_API unsigned osrmc_table_response_destination_count(osrmc_table_response_t response, osrmc_error_t* error);
+OSRMC_API int osrmc_table_response_get_duration_matrix(osrmc_table_response_t response, float* matrix, size_t max_size, osrmc_error_t* error);
+OSRMC_API int osrmc_table_response_get_distance_matrix(osrmc_table_response_t response, float* matrix, size_t max_size, osrmc_error_t* error);
+
 /* Nearest service */
 
 OSRMC_API osrmc_nearest_params_t osrmc_nearest_params_construct(osrmc_error_t* error);
 OSRMC_API void osrmc_nearest_params_destruct(osrmc_nearest_params_t params);
 OSRMC_API void osrmc_nearest_set_number_of_results(osrmc_nearest_params_t params, unsigned n, osrmc_error_t* error);
 
+OSRMC_API osrmc_nearest_response_t osrmc_nearest(osrmc_osrm_t osrm, osrmc_nearest_params_t params, osrmc_error_t* error);
+OSRMC_API void osrmc_nearest_response_destruct(osrmc_nearest_response_t response);
+OSRMC_API unsigned osrmc_nearest_response_count(osrmc_nearest_response_t response, osrmc_error_t* error);
+OSRMC_API float osrmc_nearest_response_latitude(osrmc_nearest_response_t response, unsigned index, osrmc_error_t* error);
+OSRMC_API float osrmc_nearest_response_longitude(osrmc_nearest_response_t response, unsigned index, osrmc_error_t* error);
+OSRMC_API const char* osrmc_nearest_response_name(osrmc_nearest_response_t response, unsigned index, osrmc_error_t* error);
+OSRMC_API float osrmc_nearest_response_distance(osrmc_nearest_response_t response, unsigned index, osrmc_error_t* error);
+
 /* Match service */
 
 OSRMC_API osrmc_match_params_t osrmc_match_params_construct(osrmc_error_t* error);
 OSRMC_API void osrmc_match_params_destruct(osrmc_match_params_t params);
 OSRMC_API void osrmc_match_params_add_timestamp(osrmc_match_params_t params, unsigned timestamp, osrmc_error_t* error);
+
+OSRMC_API osrmc_match_response_t osrmc_match(osrmc_osrm_t osrm, osrmc_match_params_t params, osrmc_error_t* error);
+OSRMC_API void osrmc_match_response_destruct(osrmc_match_response_t response);
+OSRMC_API unsigned osrmc_match_response_route_count(osrmc_match_response_t response, osrmc_error_t* error);
+OSRMC_API unsigned osrmc_match_response_tracepoint_count(osrmc_match_response_t response, osrmc_error_t* error);
+OSRMC_API float osrmc_match_response_route_distance(osrmc_match_response_t response, unsigned route_index, osrmc_error_t* error);
+OSRMC_API float osrmc_match_response_route_duration(osrmc_match_response_t response, unsigned route_index, osrmc_error_t* error);
+OSRMC_API float osrmc_match_response_route_confidence(osrmc_match_response_t response, unsigned route_index, osrmc_error_t* error);
+OSRMC_API float osrmc_match_response_tracepoint_latitude(osrmc_match_response_t response, unsigned index, osrmc_error_t* error);
+OSRMC_API float osrmc_match_response_tracepoint_longitude(osrmc_match_response_t response, unsigned index, osrmc_error_t* error);
+OSRMC_API int osrmc_match_response_tracepoint_is_null(osrmc_match_response_t response, unsigned index, osrmc_error_t* error);
+
+/* Trip service */
+
+OSRMC_API osrmc_trip_params_t osrmc_trip_params_construct(osrmc_error_t* error);
+OSRMC_API void osrmc_trip_params_destruct(osrmc_trip_params_t params);
+OSRMC_API void osrmc_trip_params_add_roundtrip(osrmc_trip_params_t params, int on, osrmc_error_t* error);
+OSRMC_API void osrmc_trip_params_add_source(osrmc_trip_params_t params, const char* source, osrmc_error_t* error);
+OSRMC_API void osrmc_trip_params_add_destination(osrmc_trip_params_t params, const char* destination, osrmc_error_t* error);
+
+OSRMC_API osrmc_trip_response_t osrmc_trip(osrmc_osrm_t osrm, osrmc_trip_params_t params, osrmc_error_t* error);
+OSRMC_API void osrmc_trip_response_destruct(osrmc_trip_response_t response);
+OSRMC_API float osrmc_trip_response_distance(osrmc_trip_response_t response, osrmc_error_t* error);
+OSRMC_API float osrmc_trip_response_duration(osrmc_trip_response_t response, osrmc_error_t* error);
+OSRMC_API unsigned osrmc_trip_response_waypoint_count(osrmc_trip_response_t response, osrmc_error_t* error);
+OSRMC_API float osrmc_trip_response_waypoint_latitude(osrmc_trip_response_t response, unsigned index, osrmc_error_t* error);
+OSRMC_API float osrmc_trip_response_waypoint_longitude(osrmc_trip_response_t response, unsigned index, osrmc_error_t* error);
+
+/* Tile service */
+
+OSRMC_API osrmc_tile_params_t osrmc_tile_params_construct(osrmc_error_t* error);
+OSRMC_API void osrmc_tile_params_destruct(osrmc_tile_params_t params);
+OSRMC_API void osrmc_tile_params_set_x(osrmc_tile_params_t params, unsigned x, osrmc_error_t* error);
+OSRMC_API void osrmc_tile_params_set_y(osrmc_tile_params_t params, unsigned y, osrmc_error_t* error);
+OSRMC_API void osrmc_tile_params_set_z(osrmc_tile_params_t params, unsigned z, osrmc_error_t* error);
+
+OSRMC_API osrmc_tile_response_t osrmc_tile(osrmc_osrm_t osrm, osrmc_tile_params_t params, osrmc_error_t* error);
+OSRMC_API void osrmc_tile_response_destruct(osrmc_tile_response_t response);
+OSRMC_API const char* osrmc_tile_response_data(osrmc_tile_response_t response, size_t* size, osrmc_error_t* error);
+OSRMC_API size_t osrmc_tile_response_size(osrmc_tile_response_t response, osrmc_error_t* error);
 
 #ifdef __cplusplus
 }
