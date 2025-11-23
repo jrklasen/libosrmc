@@ -1,43 +1,34 @@
 include config.mk
 
-TARGET = libosrmc.so
+LIBRARY = libosrmc$(SHARED_EXT)
 OBJECTS = osrmc.o
 HEADER = osrmc.h
 
-# Dependency checks
-PKG_CONFIG_CMD = PKG_CONFIG_PATH=$(PKG_CONFIG_PATHS):$$PKG_CONFIG_PATH pkg-config
+all: $(LIBRARY)
 
-check-deps:
-	@echo "Checking dependencies..."
-	@echo -n "  pkg-config: "
-	@which pkg-config > /dev/null 2>&1 && echo "OK" || (echo "MISSING" && exit 1)
-	@echo -n "  libosrm (pkg-config): "
-	@$(PKG_CONFIG_CMD) --exists libosrm > /dev/null 2>&1 && echo "OK (version: $$($(PKG_CONFIG_CMD) --modversion libosrm 2>/dev/null || echo 'unknown'))" || (echo "MISSING - OSRM 6.0 not found" && exit 1)
-	@echo -n "  C++ compiler (C++20): "
-	@if $(CXX) --version > /dev/null 2>&1; then \
-		$(CXX) -std=c++20 -x c++ -c /dev/null -o /dev/null 2>/dev/null && \
-		echo "OK ($$($(CXX) --version | head -1 | sed 's/ .*//'))" || \
-		(echo "MISSING or no C++20 support" && exit 1); \
-	else \
-		echo "MISSING"; \
-		exit 1; \
-	fi
-	@echo -n "  Boost (via libosrm): "
-	@$(PKG_CONFIG_CMD) --cflags libosrm 2>/dev/null | grep -q BOOST && echo "OK (detected via libosrm)" || echo "WARNING: Boost flags not detected"
-	@echo "All required dependencies found!"
+%.o: %.cc $(HEADER)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
-$(TARGET): $(OBJECTS) $(HEADER)
-	$(CXX) $(LDFLAGS) -o $@ $< $(LDLIBS)
+$(LIBRARY): $(OBJECTS) $(HEADER)
+	LIBRARY_PATH="$(PREFIX)/lib:$${LIBRARY_PATH}" $(CXX) $(LDFLAGS) -o $@ $(OBJECTS) $(LDLIBS)
 
-install:
+install: $(LIBRARY)
 	@mkdir -p $(DESTDIR)$(PREFIX)/include/osrmc
 	install -m 0644 $(HEADER) $(DESTDIR)$(PREFIX)/include/osrmc
+ifeq ($(TARGET),mingw)
+	@mkdir -p $(DESTDIR)$(PREFIX)/bin $(DESTDIR)$(PREFIX)/lib
+	install -m 0755 $(LIBRARY) $(DESTDIR)$(PREFIX)/bin
+	install -m 0755 libosrmc$(IMPLIB_EXT) $(DESTDIR)$(PREFIX)/lib
+else
 	@mkdir -p $(DESTDIR)$(PREFIX)/lib
-	install -m 0755 $(TARGET) $(DESTDIR)$(PREFIX)/lib
-	ln -sf $(TARGET) $(DESTDIR)$(PREFIX)/lib/$(TARGET).$(VERSION_MAJOR)
-	ln -sf $(TARGET) $(DESTDIR)$(PREFIX)/lib/$(TARGET).$(VERSION_MAJOR).$(VERSION_MINOR)
+	install -m 0755 $(LIBRARY) $(DESTDIR)$(PREFIX)/lib
+ifeq ($(TARGET),linux)
+	ln -sf $(LIBRARY) $(DESTDIR)$(PREFIX)/lib/$(LIBRARY).$(VERSION_MAJOR)
+	ln -sf $(LIBRARY) $(DESTDIR)$(PREFIX)/lib/$(LIBRARY).$(VERSION_MAJOR).$(VERSION_MINOR)
+endif
+endif
 
 clean:
-	@$(RM) $(OBJECTS) $(TARGET)
+	@$(RM) $(OBJECTS) $(LIBRARY) libosrmc$(IMPLIB_EXT)
 
-.PHONY: clean install check-deps
+.PHONY: all clean install

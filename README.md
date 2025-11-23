@@ -12,30 +12,26 @@ Note: Originally tested against OSRM 5.4 release. Updated and modernized for OSR
 
 ##### Dependencies
 
-This library requires OSRM 6.0 and its dependencies.
+- **OSRM 6.0**: libosrm with pkg-config support
+- **C++20 compiler**: GCC 10+ or Clang 12+
+- **pkg-config**: For discovering OSRM configuration
 
-**Quick summary:**
-- **OSRM 6.0**: The libosrm library with pkg-config support
-- **Boost**: Version 1.81.0 or higher (required by OSRM, linked via libosrm)
-- **C++20 compatible compiler**: GCC 10+ or Clang 12+
-- **pkg-config**: For discovering OSRM build configuration
-
-**Verifying dependencies:**
-
-    make check-deps
-
-This will verify that all required dependencies are available and properly configured.
+**Supported platforms:** Linux, macOS, Windows (MinGW)
 
 ##### Quick Start
 
-    cd libosrmc
-    make
-    sudo make install
-    sudo ldconfig
+```bash
+cd libosrmc
+make
+sudo make install
+```
 
-This compiles the `libosrmc.so` shared object and installs it into `/usr/local` (you may have to `export LD_LIBRARY_PATH="/usr/local/lib"`) or install to `/usr/lib`.
-The library's interface `osrmc.h` gets installed into `/usr/local/include/osrmc/osrmc.h`.
-You can modify defaults via `config.mk`.
+The build system automatically detects your platform:
+- **Linux**: `libosrmc.so`
+- **macOS**: `libosrmc.dylib`
+- **Windows**: `libosrmc.dll` + `libosrmc.dll.a`
+
+Installation prefix defaults to `/usr/local` (Unix) or `/mingw64` (Windows). Modify `config.mk` to change.
 
 Please refer to [`osrmc/osrmc.h`](https://github.com/daniel-j-h/libosrmc/blob/master/libosrmc/osrmc.h) for library documentation.
 
