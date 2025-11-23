@@ -21,9 +21,16 @@ Note: Originally tested against OSRM 5.4 release. Updated and modernized for OSR
 ##### Quick Start
 
 ```bash
-cd libosrmc
+cd libosrmc/libosrmc
+# if you want to check dependencies
+# make check-deps
+# if you want to clean an old build
+# make clean
 make
+# if you want to show the build configuration
+# make show-config
 sudo make install
+
 ```
 
 The build system automatically detects your platform:
@@ -33,17 +40,16 @@ The build system automatically detects your platform:
 
 Installation prefix defaults to `/usr/local` (Unix) or `/mingw64` (Windows). Modify `config.mk` to change.
 
-Please refer to [`osrmc/osrmc.h`](https://github.com/daniel-j-h/libosrmc/blob/master/libosrmc/osrmc.h) for library documentation.
+**Custom Installation Path:**
+```bash
+make PREFIX=/custom/path
+sudo make install PREFIX=/custom/path
+```
 
-##### Todo
-
-- [ ] Remaining Services
-- [ ] Callbacks for Responses
-- [ ] Use from Language FFIs
-- [ ] Make Python Integration Exception-Safe
+Please refer to [`osrmc/osrmc.h`](https://github.com/jrklasen/libosrmc/blob/main/libosrmc/osrmc.h) for library documentation.
 
 ##### License
 
-Copyright © 2016 Daniel J. Hofmann
+Copyright © 2025 MOVIRO GmbH & Daniel J. Hofmann & other
 
 Distributed under the MIT License (MIT).
