@@ -3,6 +3,7 @@
 #include <cmath>
 #include <exception>
 #include <filesystem>
+#include <limits>
 #include <locale>
 #include <optional>
 #include <sstream>
@@ -10,6 +11,7 @@
 #include <string_view>
 #include <utility>
 #include <variant>
+#include <vector>
 
 #include <osrm/coordinate.hpp>
 #include <osrm/engine_config.hpp>
@@ -26,6 +28,7 @@
 #include <osrm/status.hpp>
 #include <osrm/storage_config.hpp>
 #include "engine/hint.hpp"
+#include "engine/polyline_compressor.hpp"
 
 #include "osrmc.h"
 
@@ -44,6 +47,18 @@ struct osrmc_error final {
 
 struct osrmc_blob final {
   std::string data;
+};
+
+struct osrmc_coordinate final {
+  double lon;
+  double lat;
+};
+
+struct osrmc_route_response final {
+  osrm::json::Object json;
+  osrm::RouteParameters::GeometriesType geometries = osrm::RouteParameters::GeometriesType::Polyline;
+  std::vector<std::vector<osrmc_coordinate>> geometry_cache;
+  std::vector<bool> geometry_cache_ready;
 };
 
 namespace {
@@ -544,6 +559,15 @@ void osrmc_config_set_verbosity(osrmc_config_t config, const char* verbosity, os
   osrmc_error_from_exception(e, error);
 }
 
+static void osrmc_refresh_storage_config_for_datasets(osrm::EngineConfig* config_typed) {
+  const auto base_path = config_typed->storage_config.base_path;
+  if (!base_path.empty()) {
+    config_typed->storage_config = osrm::StorageConfig(base_path, config_typed->disable_feature_dataset);
+  } else {
+    config_typed->storage_config = osrm::StorageConfig(config_typed->disable_feature_dataset);
+  }
+}
+
 void osrmc_config_disable_feature_dataset(osrmc_config_t config, const char* dataset_name, osrmc_error_t* error) try {
   if (!dataset_name) {
     *error = new osrmc_error{"InvalidDataset", "Dataset name must not be null"};
@@ -562,6 +586,7 @@ void osrmc_config_disable_feature_dataset(osrmc_config_t config, const char* dat
                                 *dataset) != config_typed->disable_feature_dataset.end();
   if (!exists) {
     config_typed->disable_feature_dataset.push_back(*dataset);
+    osrmc_refresh_storage_config_for_datasets(config_typed);
   }
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
@@ -570,6 +595,7 @@ void osrmc_config_disable_feature_dataset(osrmc_config_t config, const char* dat
 void osrmc_config_clear_disabled_feature_datasets(osrmc_config_t config, osrmc_error_t* error) try {
   auto* config_typed = reinterpret_cast<osrm::EngineConfig*>(config);
   config_typed->disable_feature_dataset.clear();
+  osrmc_refresh_storage_config_for_datasets(config_typed);
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
 }
@@ -586,7 +612,7 @@ osrmc_osrm_t osrmc_osrm_construct(osrmc_config_t config, osrmc_error_t* error) t
 
 void osrmc_osrm_destruct(osrmc_osrm_t osrm) { delete reinterpret_cast<osrm::OSRM*>(osrm); }
 
-void osrmc_params_add_coordinate(osrmc_params_t params, float longitude, float latitude, osrmc_error_t* error) try {
+void osrmc_params_add_coordinate(osrmc_params_t params, double longitude, double latitude, osrmc_error_t* error) try {
   auto* params_typed = reinterpret_cast<osrm::engine::api::BaseParameters*>(params);
 
   auto longitude_typed = osrm::util::FloatLongitude{longitude};
@@ -597,7 +623,7 @@ void osrmc_params_add_coordinate(osrmc_params_t params, float longitude, float l
   osrmc_error_from_exception(e, error);
 }
 
-void osrmc_params_add_coordinate_with(osrmc_params_t params, float longitude, float latitude, float radius, int bearing,
+void osrmc_params_add_coordinate_with(osrmc_params_t params, double longitude, double latitude, double radius, int bearing,
                                       int range, osrmc_error_t* error) try {
   auto* params_typed = reinterpret_cast<osrm::engine::api::BaseParameters*>(params);
 
@@ -749,6 +775,213 @@ void osrmc_params_set_format(osrmc_params_t params, osrmc_output_format_t format
   osrmc_error_from_exception(e, error);
 }
 
+template <typename ParamsT>
+static bool osrmc_ensure_json_format(const ParamsT& params, const char* service_name, osrmc_error_t* error) {
+  if (params.format && *params.format == osrm::engine::api::BaseParameters::OutputFormatType::FLATBUFFERS) {
+    if (error) {
+      std::string message = std::string(service_name) + " service does not support Flatbuffers output in libosrmc";
+      *error = new osrmc_error{"UnsupportedFormat", std::move(message)};
+    }
+    return false;
+  }
+  return true;
+}
+
+static osrm::RouteParameters* osrmc_route_like_params(osrmc_route_params_t params) {
+  return reinterpret_cast<osrm::RouteParameters*>(params);
+}
+
+static osrm::RouteParameters* osrmc_route_like_params(osrmc_match_params_t params) {
+  auto* params_typed = reinterpret_cast<osrm::MatchParameters*>(params);
+  return static_cast<osrm::RouteParameters*>(params_typed);
+}
+
+static osrm::RouteParameters* osrmc_route_like_params(osrmc_trip_params_t params) {
+  auto* params_typed = reinterpret_cast<osrm::TripParameters*>(params);
+  return static_cast<osrm::RouteParameters*>(params_typed);
+}
+
+template <typename ParamsHandle>
+static void osrmc_route_like_set_steps_flag(ParamsHandle params, int on) {
+  osrmc_route_like_params(params)->steps = on != 0;
+}
+
+template <typename ParamsHandle>
+static void osrmc_route_like_set_alternatives_flag(ParamsHandle params, int on) {
+  osrmc_route_like_params(params)->alternatives = on != 0;
+}
+
+template <typename ParamsHandle>
+static void osrmc_route_like_set_number_of_alternatives_value(ParamsHandle params, unsigned count) {
+  auto* params_typed = osrmc_route_like_params(params);
+  params_typed->number_of_alternatives = count;
+  params_typed->alternatives = count > 0;
+}
+
+static void osrmc_route_like_set_continue_straight_impl(osrm::RouteParameters* params, int on) {
+  if (on < 0) {
+    params->continue_straight = std::nullopt;
+  } else {
+    params->continue_straight = (on != 0);
+  }
+}
+
+static void osrmc_route_like_set_geometries_impl(osrm::RouteParameters* params,
+                                                 const char* geometries,
+                                                 osrmc_error_t* error) {
+  if (!geometries) {
+    *error = new osrmc_error{"InvalidArgument", "Geometries must not be null"};
+    return;
+  }
+  const auto value = osrmc_route_geometries_from_string(geometries);
+  if (!value) {
+    *error = new osrmc_error{"InvalidArgument", "Unknown geometries type"};
+    return;
+  }
+  params->geometries = *value;
+}
+
+static void osrmc_route_like_set_overview_impl(osrm::RouteParameters* params,
+                                               const char* overview,
+                                               osrmc_error_t* error) {
+  if (!overview) {
+    *error = new osrmc_error{"InvalidArgument", "Overview must not be null"};
+    return;
+  }
+  const auto value = osrmc_route_overview_from_string(overview);
+  if (!value) {
+    *error = new osrmc_error{"InvalidArgument", "Unknown overview type"};
+    return;
+  }
+  params->overview = *value;
+}
+
+static void osrmc_route_like_set_annotations_impl(osrm::RouteParameters* params,
+                                                  const char* annotations,
+                                                  osrmc_error_t* error) {
+  if (!annotations) {
+    params->annotations = false;
+    params->annotations_type = osrm::RouteParameters::AnnotationsType::None;
+    return;
+  }
+
+  osrm::RouteParameters::AnnotationsType mask;
+  if (!osrmc_parse_route_annotations(annotations, mask)) {
+    *error = new osrmc_error{"InvalidArgument", "Unknown annotation token"};
+    return;
+  }
+  params->annotations_type = mask;
+  params->annotations = mask != osrm::RouteParameters::AnnotationsType::None;
+}
+
+static void osrmc_route_like_add_waypoint_impl(osrm::RouteParameters* params, size_t index) {
+  params->waypoints.emplace_back(index);
+}
+
+static void osrmc_route_like_clear_waypoints_impl(osrm::RouteParameters* params) {
+  params->waypoints.clear();
+}
+
+static osrmc_route_response* osrmc_get_route_response(osrmc_route_response_t response) {
+  return reinterpret_cast<osrmc_route_response*>(response);
+}
+
+static bool osrmc_collect_route_coordinates(const osrm::json::Object& route,
+                                            osrm::RouteParameters::GeometriesType geometry_type,
+                                            std::vector<osrmc_coordinate>& out,
+                                            osrmc_error_t* error) {
+  const auto geometry_iter = route.values.find("geometry");
+  if (geometry_iter == route.values.end()) {
+    out.clear();
+    return true;
+  }
+
+  const auto& geometry = geometry_iter->second;
+  if (geometry_type == osrm::RouteParameters::GeometriesType::GeoJSON) {
+    if (!std::holds_alternative<osrm::json::Object>(geometry)) {
+      *error = new osrmc_error{"InvalidGeometry", "Expected GeoJSON geometry"};
+      return false;
+    }
+
+    const auto& geometry_obj = std::get<osrm::json::Object>(geometry);
+    const auto coordinates_iter = geometry_obj.values.find("coordinates");
+    if (coordinates_iter == geometry_obj.values.end()) {
+      out.clear();
+      return true;
+    }
+
+    const auto& coordinates = std::get<osrm::json::Array>(coordinates_iter->second);
+    out.clear();
+    out.reserve(coordinates.values.size());
+    for (const auto& coordinate_value : coordinates.values) {
+      const auto& coordinate_pair = std::get<osrm::json::Array>(coordinate_value).values;
+      if (coordinate_pair.size() < 2) {
+        *error = new osrmc_error{"InvalidGeometry", "Coordinate entry is malformed"};
+        return false;
+      }
+      const auto lon = std::get<osrm::json::Number>(coordinate_pair[0]).value;
+      const auto lat = std::get<osrm::json::Number>(coordinate_pair[1]).value;
+      out.push_back(osrmc_coordinate{lon, lat});
+    }
+    return true;
+  }
+
+  std::string encoded;
+  if (std::holds_alternative<osrm::json::String>(geometry)) {
+    encoded = std::get<osrm::json::String>(geometry).value;
+  } else if (std::holds_alternative<osrm::json::Object>(geometry)) {
+    const auto& geometry_obj = std::get<osrm::json::Object>(geometry);
+    const char* key = geometry_type == osrm::RouteParameters::GeometriesType::Polyline ? "polyline" : "polyline6";
+    const auto iter = geometry_obj.values.find(key);
+    if (iter != geometry_obj.values.end()) {
+      encoded = std::get<osrm::json::String>(iter->second).value;
+    }
+  }
+
+  out.clear();
+  if (encoded.empty()) {
+    return true;
+  }
+
+  std::vector<osrm::util::Coordinate> decoded;
+  if (geometry_type == osrm::RouteParameters::GeometriesType::Polyline) {
+    decoded = osrm::engine::decodePolyline<100000>(encoded);
+  } else if (geometry_type == osrm::RouteParameters::GeometriesType::Polyline6) {
+    decoded = osrm::engine::decodePolyline<1000000>(encoded);
+  } else {
+    decoded = osrm::engine::decodePolyline<100000>(encoded);
+  }
+
+  out.reserve(decoded.size());
+  for (const auto& coordinate : decoded) {
+    const auto lon = static_cast<double>(osrm::util::toFloating(coordinate.lon));
+    const auto lat = static_cast<double>(osrm::util::toFloating(coordinate.lat));
+    out.push_back(osrmc_coordinate{lon, lat});
+  }
+
+  return true;
+}
+
+static bool osrmc_ensure_route_geometry_cache(osrmc_route_response* response,
+                                              unsigned route_index,
+                                              osrm::json::Object& route,
+                                              osrmc_error_t* error) {
+  if (response->geometry_cache.size() <= route_index) {
+    response->geometry_cache.resize(route_index + 1);
+    response->geometry_cache_ready.resize(route_index + 1, false);
+  }
+
+  if (response->geometry_cache_ready[route_index]) {
+    return true;
+  }
+
+  if (!osrmc_collect_route_coordinates(route, response->geometries, response->geometry_cache[route_index], error)) {
+    return false;
+  }
+  response->geometry_cache_ready[route_index] = true;
+  return true;
+}
+
 osrmc_route_params_t osrmc_route_params_construct(osrmc_error_t* error) try {
   auto* out = new osrm::RouteParameters;
 
@@ -763,108 +996,71 @@ void osrmc_route_params_destruct(osrmc_route_params_t params) {
 }
 
 void osrmc_route_params_add_steps(osrmc_route_params_t params, int on) {
-  auto* params_typed = reinterpret_cast<osrm::RouteParameters*>(params);
-  params_typed->steps = on;
+  osrmc_route_like_set_steps_flag(params, on);
 }
 
 void osrmc_route_params_add_alternatives(osrmc_route_params_t params, int on) {
-  auto* params_typed = reinterpret_cast<osrm::RouteParameters*>(params);
-  params_typed->alternatives = on;
+  osrmc_route_like_set_alternatives_flag(params, on);
 }
 
 void osrmc_route_params_set_geometries(osrmc_route_params_t params, const char* geometries, osrmc_error_t* error) try {
-  if (!geometries) {
-    *error = new osrmc_error{"InvalidArgument", "Geometries must not be null"};
-    return;
-  }
-  auto* params_typed = reinterpret_cast<osrm::RouteParameters*>(params);
-  const auto value = osrmc_route_geometries_from_string(geometries);
-  if (!value) {
-    *error = new osrmc_error{"InvalidArgument", "Unknown geometries type"};
-    return;
-  }
-  params_typed->geometries = *value;
+  osrmc_route_like_set_geometries_impl(osrmc_route_like_params(params), geometries, error);
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
 }
 
 void osrmc_route_params_set_overview(osrmc_route_params_t params, const char* overview, osrmc_error_t* error) try {
-  if (!overview) {
-    *error = new osrmc_error{"InvalidArgument", "Overview must not be null"};
-    return;
-  }
-  auto* params_typed = reinterpret_cast<osrm::RouteParameters*>(params);
-  const auto value = osrmc_route_overview_from_string(overview);
-  if (!value) {
-    *error = new osrmc_error{"InvalidArgument", "Unknown overview type"};
-    return;
-  }
-  params_typed->overview = *value;
+  osrmc_route_like_set_overview_impl(osrmc_route_like_params(params), overview, error);
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
 }
 
 void osrmc_route_params_set_continue_straight(osrmc_route_params_t params, int on, osrmc_error_t* error) try {
-  auto* params_typed = reinterpret_cast<osrm::RouteParameters*>(params);
-  if (on < 0) {
-    params_typed->continue_straight = std::nullopt;
-  } else {
-    params_typed->continue_straight = (on != 0);
-  }
+  osrmc_route_like_set_continue_straight_impl(osrmc_route_like_params(params), on);
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
 }
 
 void osrmc_route_params_set_number_of_alternatives(osrmc_route_params_t params, unsigned count, osrmc_error_t* error) try {
-  auto* params_typed = reinterpret_cast<osrm::RouteParameters*>(params);
-  params_typed->number_of_alternatives = count;
-  params_typed->alternatives = count > 0;
+  osrmc_route_like_set_number_of_alternatives_value(params, count);
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
 }
 
 void osrmc_route_params_set_annotations(osrmc_route_params_t params, const char* annotations, osrmc_error_t* error) try {
-  auto* params_typed = reinterpret_cast<osrm::RouteParameters*>(params);
-  if (!annotations) {
-    params_typed->annotations = false;
-    params_typed->annotations_type = osrm::RouteParameters::AnnotationsType::None;
-    return;
-  }
-
-  osrm::RouteParameters::AnnotationsType mask;
-  if (!osrmc_parse_route_annotations(annotations, mask)) {
-    *error = new osrmc_error{"InvalidArgument", "Unknown annotation token"};
-    return;
-  }
-  params_typed->annotations_type = mask;
-  params_typed->annotations = mask != osrm::RouteParameters::AnnotationsType::None;
+  osrmc_route_like_set_annotations_impl(osrmc_route_like_params(params), annotations, error);
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
 }
 
 void osrmc_route_params_add_waypoint(osrmc_route_params_t params, size_t index, osrmc_error_t* error) try {
-  auto* params_typed = reinterpret_cast<osrm::RouteParameters*>(params);
-  params_typed->waypoints.emplace_back(index);
+  osrmc_route_like_add_waypoint_impl(osrmc_route_like_params(params), index);
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
 }
 
 void osrmc_route_params_clear_waypoints(osrmc_route_params_t params) {
-  auto* params_typed = reinterpret_cast<osrm::RouteParameters*>(params);
-  params_typed->waypoints.clear();
+  osrmc_route_like_clear_waypoints_impl(osrmc_route_like_params(params));
 }
 
 osrmc_route_response_t osrmc_route(osrmc_osrm_t osrm, osrmc_route_params_t params, osrmc_error_t* error) try {
   auto* osrm_typed = reinterpret_cast<osrm::OSRM*>(osrm);
   auto* params_typed = reinterpret_cast<osrm::RouteParameters*>(params);
 
-  auto* out = new osrm::json::Object;
-  const auto status = osrm_typed->Route(*params_typed, *out);
+  if (!osrmc_ensure_json_format(*params_typed, "Route", error)) {
+    return nullptr;
+  }
 
-  if (status == osrm::Status::Ok)
+  auto* out = new osrmc_route_response;
+  const auto status = osrm_typed->Route(*params_typed, out->json);
+
+  if (status == osrm::Status::Ok) {
+    out->geometries = params_typed->geometries;
     return reinterpret_cast<osrmc_route_response_t>(out);
+  }
 
-  osrmc_error_from_json(*out, error);
+  osrmc_error_from_json(out->json, error);
+  delete out;
   return nullptr;
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
@@ -875,6 +1071,10 @@ void osrmc_route_with(osrmc_osrm_t osrm, osrmc_route_params_t params, osrmc_wayp
                       osrmc_error_t* error) try {
   auto* osrm_typed = reinterpret_cast<osrm::OSRM*>(osrm);
   auto* params_typed = reinterpret_cast<osrm::RouteParameters*>(params);
+
+  if (!osrmc_ensure_json_format(*params_typed, "Route", error)) {
+    return;
+  }
 
   osrm::json::Object result;
   const auto status = osrm_typed->Route(*params_typed, result);
@@ -901,56 +1101,60 @@ void osrmc_route_with(osrmc_osrm_t osrm, osrmc_route_params_t params, osrmc_wayp
 }
 
 void osrmc_route_response_destruct(osrmc_route_response_t response) {
-  delete reinterpret_cast<osrm::json::Object*>(response);
+  delete osrmc_get_route_response(response);
 }
 
-float osrmc_route_response_distance(osrmc_route_response_t response, osrmc_error_t* error) try {
-  auto* response_typed = reinterpret_cast<osrm::json::Object*>(response);
+double osrmc_route_response_distance(osrmc_route_response_t response, osrmc_error_t* error) try {
+  auto* response_holder = osrmc_get_route_response(response);
+  auto& response_json = response_holder->json;
 
-  auto& routes = std::get<osrm::json::Array>(response_typed->values["routes"]);
+  auto& routes = std::get<osrm::json::Array>(response_json.values["routes"]);
   auto& route = std::get<osrm::json::Object>(routes.values.at(0));
 
   const auto distance = std::get<osrm::json::Number>(route.values["distance"]).value;
   return distance;
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
-  return INFINITY;
+  return std::numeric_limits<double>::infinity();
 }
 
-float osrmc_route_response_duration(osrmc_route_response_t response, osrmc_error_t* error) try {
-  auto* response_typed = reinterpret_cast<osrm::json::Object*>(response);
+double osrmc_route_response_duration(osrmc_route_response_t response, osrmc_error_t* error) try {
+  auto* response_holder = osrmc_get_route_response(response);
+  auto& response_json = response_holder->json;
 
-  auto& routes = std::get<osrm::json::Array>(response_typed->values["routes"]);
+  auto& routes = std::get<osrm::json::Array>(response_json.values["routes"]);
   auto& route = std::get<osrm::json::Object>(routes.values.at(0));
 
   const auto duration = std::get<osrm::json::Number>(route.values["duration"]).value;
   return duration;
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
-  return INFINITY;
+  return std::numeric_limits<double>::infinity();
 }
 
 unsigned osrmc_route_response_alternative_count(osrmc_route_response_t response, osrmc_error_t* error) try {
-  auto* response_typed = reinterpret_cast<osrm::json::Object*>(response);
+  auto* response_holder = osrmc_get_route_response(response);
+  auto& response_json = response_holder->json;
 
-  if (response_typed->values.find("routes") == response_typed->values.end()) {
+  if (response_json.values.find("routes") == response_json.values.end()) {
     return 0;
   }
 
-  const auto& routes = std::get<osrm::json::Array>(response_typed->values.at("routes"));
+  const auto& routes = std::get<osrm::json::Array>(response_json.values.at("routes"));
   return static_cast<unsigned>(routes.values.size());
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
   return 0;
 }
 
-float osrmc_route_response_distance_at(osrmc_route_response_t response, unsigned route_index, osrmc_error_t* error) try {
-  auto* response_typed = reinterpret_cast<osrm::json::Object*>(response);
+double osrmc_route_response_distance_at(osrmc_route_response_t response, unsigned route_index, osrmc_error_t* error) try {
+  auto* response_holder = osrmc_get_route_response(response);
+  auto& response_json = response_holder->json;
 
-  auto& routes = std::get<osrm::json::Array>(response_typed->values["routes"]);
+  auto& routes = std::get<osrm::json::Array>(response_json.values["routes"]);
   if (route_index >= routes.values.size()) {
     *error = new osrmc_error{"IndexOutOfBounds", "Route index out of bounds"};
-    return INFINITY;
+    return std::numeric_limits<double>::infinity();
   }
 
   auto& route = std::get<osrm::json::Object>(routes.values.at(route_index));
@@ -958,16 +1162,17 @@ float osrmc_route_response_distance_at(osrmc_route_response_t response, unsigned
   return distance;
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
-  return INFINITY;
+  return std::numeric_limits<double>::infinity();
 }
 
-float osrmc_route_response_duration_at(osrmc_route_response_t response, unsigned route_index, osrmc_error_t* error) try {
-  auto* response_typed = reinterpret_cast<osrm::json::Object*>(response);
+double osrmc_route_response_duration_at(osrmc_route_response_t response, unsigned route_index, osrmc_error_t* error) try {
+  auto* response_holder = osrmc_get_route_response(response);
+  auto& response_json = response_holder->json;
 
-  auto& routes = std::get<osrm::json::Array>(response_typed->values["routes"]);
+  auto& routes = std::get<osrm::json::Array>(response_json.values["routes"]);
   if (route_index >= routes.values.size()) {
     *error = new osrmc_error{"IndexOutOfBounds", "Route index out of bounds"};
-    return INFINITY;
+    return std::numeric_limits<double>::infinity();
   }
 
   auto& route = std::get<osrm::json::Object>(routes.values.at(route_index));
@@ -975,13 +1180,14 @@ float osrmc_route_response_duration_at(osrmc_route_response_t response, unsigned
   return duration;
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
-  return INFINITY;
+  return std::numeric_limits<double>::infinity();
 }
 
 const char* osrmc_route_response_geometry_polyline(osrmc_route_response_t response, unsigned route_index, osrmc_error_t* error) try {
-  auto* response_typed = reinterpret_cast<osrm::json::Object*>(response);
+  auto* response_holder = osrmc_get_route_response(response);
+  auto& response_json = response_holder->json;
 
-  auto& routes = std::get<osrm::json::Array>(response_typed->values["routes"]);
+  auto& routes = std::get<osrm::json::Array>(response_json.values["routes"]);
   if (route_index >= routes.values.size()) {
     *error = new osrmc_error{"IndexOutOfBounds", "Route index out of bounds"};
     return nullptr;
@@ -1016,111 +1222,101 @@ const char* osrmc_route_response_geometry_polyline(osrmc_route_response_t respon
 }
 
 unsigned osrmc_route_response_geometry_coordinate_count(osrmc_route_response_t response, unsigned route_index, osrmc_error_t* error) try {
-  auto* response_typed = reinterpret_cast<osrm::json::Object*>(response);
+  auto* response_holder = osrmc_get_route_response(response);
+  auto& response_json = response_holder->json;
 
-  auto& routes = std::get<osrm::json::Array>(response_typed->values["routes"]);
+  auto& routes = std::get<osrm::json::Array>(response_json.values["routes"]);
   if (route_index >= routes.values.size()) {
     *error = new osrmc_error{"IndexOutOfBounds", "Route index out of bounds"};
     return 0;
   }
 
   auto& route = std::get<osrm::json::Object>(routes.values.at(route_index));
-  if (route.values.find("geometry") == route.values.end()) {
+  if (!osrmc_ensure_route_geometry_cache(response_holder, route_index, route, error)) {
     return 0;
   }
-
-  const auto& geometry = route.values.at("geometry");
-  if (std::holds_alternative<osrm::json::Object>(geometry)) {
-    const auto& geometry_obj = std::get<osrm::json::Object>(geometry);
-    if (geometry_obj.values.find("coordinates") != geometry_obj.values.end()) {
-      const auto& coordinates = std::get<osrm::json::Array>(geometry_obj.values.at("coordinates"));
-      return static_cast<unsigned>(coordinates.values.size());
-    }
-  }
-
-  return 0;
+  const auto& cached = response_holder->geometry_cache[route_index];
+  return static_cast<unsigned>(cached.size());
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
   return 0;
 }
 
-float osrmc_route_response_geometry_coordinate_latitude(osrmc_route_response_t response, unsigned route_index, unsigned coord_index, osrmc_error_t* error) try {
-  auto* response_typed = reinterpret_cast<osrm::json::Object*>(response);
+double osrmc_route_response_geometry_coordinate_latitude(osrmc_route_response_t response, unsigned route_index, unsigned coord_index, osrmc_error_t* error) try {
+  auto* response_holder = osrmc_get_route_response(response);
+  auto& response_json = response_holder->json;
 
-  auto& routes = std::get<osrm::json::Array>(response_typed->values["routes"]);
+  auto& routes = std::get<osrm::json::Array>(response_json.values["routes"]);
   if (route_index >= routes.values.size()) {
     *error = new osrmc_error{"IndexOutOfBounds", "Route index out of bounds"};
-    return NAN;
+    return std::numeric_limits<double>::quiet_NaN();
   }
 
   auto& route = std::get<osrm::json::Object>(routes.values.at(route_index));
-  const auto& geometry = route.values.at("geometry");
-  const auto& geometry_obj = std::get<osrm::json::Object>(geometry);
-  const auto& coordinates = std::get<osrm::json::Array>(geometry_obj.values.at("coordinates"));
-
-  if (coord_index >= coordinates.values.size()) {
+  if (!osrmc_ensure_route_geometry_cache(response_holder, route_index, route, error)) {
+    return std::numeric_limits<double>::quiet_NaN();
+  }
+  const auto& cached = response_holder->geometry_cache[route_index];
+  if (coord_index >= cached.size()) {
     *error = new osrmc_error{"IndexOutOfBounds", "Coordinate index out of bounds"};
-    return NAN;
+    return std::numeric_limits<double>::quiet_NaN();
   }
 
-  const auto& coord = std::get<osrm::json::Array>(coordinates.values.at(coord_index)).values;
-  const auto latitude = std::get<osrm::json::Number>(coord[1]).value;
-
-  return latitude;
+  return cached[coord_index].lat;
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
-  return NAN;
+  return std::numeric_limits<double>::quiet_NaN();
 }
 
-float osrmc_route_response_geometry_coordinate_longitude(osrmc_route_response_t response, unsigned route_index, unsigned coord_index, osrmc_error_t* error) try {
-  auto* response_typed = reinterpret_cast<osrm::json::Object*>(response);
+double osrmc_route_response_geometry_coordinate_longitude(osrmc_route_response_t response, unsigned route_index, unsigned coord_index, osrmc_error_t* error) try {
+  auto* response_holder = osrmc_get_route_response(response);
+  auto& response_json = response_holder->json;
 
-  auto& routes = std::get<osrm::json::Array>(response_typed->values["routes"]);
+  auto& routes = std::get<osrm::json::Array>(response_json.values["routes"]);
   if (route_index >= routes.values.size()) {
     *error = new osrmc_error{"IndexOutOfBounds", "Route index out of bounds"};
-    return NAN;
+    return std::numeric_limits<double>::quiet_NaN();
   }
 
   auto& route = std::get<osrm::json::Object>(routes.values.at(route_index));
-  const auto& geometry = route.values.at("geometry");
-  const auto& geometry_obj = std::get<osrm::json::Object>(geometry);
-  const auto& coordinates = std::get<osrm::json::Array>(geometry_obj.values.at("coordinates"));
-
-  if (coord_index >= coordinates.values.size()) {
+  if (!osrmc_ensure_route_geometry_cache(response_holder, route_index, route, error)) {
+    return std::numeric_limits<double>::quiet_NaN();
+  }
+  const auto& cached = response_holder->geometry_cache[route_index];
+  if (coord_index >= cached.size()) {
     *error = new osrmc_error{"IndexOutOfBounds", "Coordinate index out of bounds"};
-    return NAN;
+    return std::numeric_limits<double>::quiet_NaN();
   }
 
-  const auto& coord = std::get<osrm::json::Array>(coordinates.values.at(coord_index)).values;
-  const auto longitude = std::get<osrm::json::Number>(coord[0]).value;
-
-  return longitude;
+  return cached[coord_index].lon;
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
-  return NAN;
+  return std::numeric_limits<double>::quiet_NaN();
 }
 
 unsigned osrmc_route_response_waypoint_count(osrmc_route_response_t response, osrmc_error_t* error) try {
-  auto* response_typed = reinterpret_cast<osrm::json::Object*>(response);
+  auto* response_holder = osrmc_get_route_response(response);
+  auto& response_json = response_holder->json;
 
-  if (response_typed->values.find("waypoints") == response_typed->values.end()) {
+  if (response_json.values.find("waypoints") == response_json.values.end()) {
     return 0;
   }
 
-  const auto& waypoints = std::get<osrm::json::Array>(response_typed->values.at("waypoints"));
+  const auto& waypoints = std::get<osrm::json::Array>(response_json.values.at("waypoints"));
   return static_cast<unsigned>(waypoints.values.size());
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
   return 0;
 }
 
-float osrmc_route_response_waypoint_latitude(osrmc_route_response_t response, unsigned index, osrmc_error_t* error) try {
-  auto* response_typed = reinterpret_cast<osrm::json::Object*>(response);
+double osrmc_route_response_waypoint_latitude(osrmc_route_response_t response, unsigned index, osrmc_error_t* error) try {
+  auto* response_holder = osrmc_get_route_response(response);
+  auto& response_json = response_holder->json;
 
-  const auto& waypoints = std::get<osrm::json::Array>(response_typed->values.at("waypoints"));
+  const auto& waypoints = std::get<osrm::json::Array>(response_json.values.at("waypoints"));
   if (index >= waypoints.values.size()) {
     *error = new osrmc_error{"IndexOutOfBounds", "Waypoint index out of bounds"};
-    return NAN;
+    return std::numeric_limits<double>::quiet_NaN();
   }
 
   const auto& waypoint = std::get<osrm::json::Object>(waypoints.values.at(index));
@@ -1130,16 +1326,17 @@ float osrmc_route_response_waypoint_latitude(osrmc_route_response_t response, un
   return latitude;
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
-  return NAN;
+  return std::numeric_limits<double>::quiet_NaN();
 }
 
-float osrmc_route_response_waypoint_longitude(osrmc_route_response_t response, unsigned index, osrmc_error_t* error) try {
-  auto* response_typed = reinterpret_cast<osrm::json::Object*>(response);
+double osrmc_route_response_waypoint_longitude(osrmc_route_response_t response, unsigned index, osrmc_error_t* error) try {
+  auto* response_holder = osrmc_get_route_response(response);
+  auto& response_json = response_holder->json;
 
-  const auto& waypoints = std::get<osrm::json::Array>(response_typed->values.at("waypoints"));
+  const auto& waypoints = std::get<osrm::json::Array>(response_json.values.at("waypoints"));
   if (index >= waypoints.values.size()) {
     *error = new osrmc_error{"IndexOutOfBounds", "Waypoint index out of bounds"};
-    return NAN;
+    return std::numeric_limits<double>::quiet_NaN();
   }
 
   const auto& waypoint = std::get<osrm::json::Object>(waypoints.values.at(index));
@@ -1149,13 +1346,14 @@ float osrmc_route_response_waypoint_longitude(osrmc_route_response_t response, u
   return longitude;
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
-  return NAN;
+  return std::numeric_limits<double>::quiet_NaN();
 }
 
 const char* osrmc_route_response_waypoint_name(osrmc_route_response_t response, unsigned index, osrmc_error_t* error) try {
-  auto* response_typed = reinterpret_cast<osrm::json::Object*>(response);
+  auto* response_holder = osrmc_get_route_response(response);
+  auto& response_json = response_holder->json;
 
-  const auto& waypoints = std::get<osrm::json::Array>(response_typed->values.at("waypoints"));
+  const auto& waypoints = std::get<osrm::json::Array>(response_json.values.at("waypoints"));
   if (index >= waypoints.values.size()) {
     *error = new osrmc_error{"IndexOutOfBounds", "Waypoint index out of bounds"};
     return nullptr;
@@ -1174,9 +1372,10 @@ const char* osrmc_route_response_waypoint_name(osrmc_route_response_t response, 
 }
 
 unsigned osrmc_route_response_leg_count(osrmc_route_response_t response, unsigned route_index, osrmc_error_t* error) try {
-  auto* response_typed = reinterpret_cast<osrm::json::Object*>(response);
+  auto* response_holder = osrmc_get_route_response(response);
+  auto& response_json = response_holder->json;
 
-  auto& routes = std::get<osrm::json::Array>(response_typed->values["routes"]);
+  auto& routes = std::get<osrm::json::Array>(response_json.values["routes"]);
   if (route_index >= routes.values.size()) {
     *error = new osrmc_error{"IndexOutOfBounds", "Route index out of bounds"};
     return 0;
@@ -1195,9 +1394,10 @@ unsigned osrmc_route_response_leg_count(osrmc_route_response_t response, unsigne
 }
 
 unsigned osrmc_route_response_step_count(osrmc_route_response_t response, unsigned route_index, unsigned leg_index, osrmc_error_t* error) try {
-  auto* response_typed = reinterpret_cast<osrm::json::Object*>(response);
+  auto* response_holder = osrmc_get_route_response(response);
+  auto& response_json = response_holder->json;
 
-  auto& routes = std::get<osrm::json::Array>(response_typed->values["routes"]);
+  auto& routes = std::get<osrm::json::Array>(response_json.values["routes"]);
   if (route_index >= routes.values.size()) {
     *error = new osrmc_error{"IndexOutOfBounds", "Route index out of bounds"};
     return 0;
@@ -1222,27 +1422,28 @@ unsigned osrmc_route_response_step_count(osrmc_route_response_t response, unsign
   return 0;
 }
 
-float osrmc_route_response_step_distance(osrmc_route_response_t response, unsigned route_index, unsigned leg_index, unsigned step_index, osrmc_error_t* error) try {
-  auto* response_typed = reinterpret_cast<osrm::json::Object*>(response);
+double osrmc_route_response_step_distance(osrmc_route_response_t response, unsigned route_index, unsigned leg_index, unsigned step_index, osrmc_error_t* error) try {
+  auto* response_holder = osrmc_get_route_response(response);
+  auto& response_json = response_holder->json;
 
-  auto& routes = std::get<osrm::json::Array>(response_typed->values["routes"]);
+  auto& routes = std::get<osrm::json::Array>(response_json.values["routes"]);
   if (route_index >= routes.values.size()) {
     *error = new osrmc_error{"IndexOutOfBounds", "Route index out of bounds"};
-    return NAN;
+    return std::numeric_limits<double>::quiet_NaN();
   }
 
   auto& route = std::get<osrm::json::Object>(routes.values.at(route_index));
   const auto& legs = std::get<osrm::json::Array>(route.values.at("legs"));
   if (leg_index >= legs.values.size()) {
     *error = new osrmc_error{"IndexOutOfBounds", "Leg index out of bounds"};
-    return NAN;
+    return std::numeric_limits<double>::quiet_NaN();
   }
 
   const auto& leg = std::get<osrm::json::Object>(legs.values.at(leg_index));
   const auto& steps = std::get<osrm::json::Array>(leg.values.at("steps"));
   if (step_index >= steps.values.size()) {
     *error = new osrmc_error{"IndexOutOfBounds", "Step index out of bounds"};
-    return NAN;
+    return std::numeric_limits<double>::quiet_NaN();
   }
 
   const auto& step = std::get<osrm::json::Object>(steps.values.at(step_index));
@@ -1251,30 +1452,31 @@ float osrmc_route_response_step_distance(osrmc_route_response_t response, unsign
   return distance;
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
-  return NAN;
+  return std::numeric_limits<double>::quiet_NaN();
 }
 
-float osrmc_route_response_step_duration(osrmc_route_response_t response, unsigned route_index, unsigned leg_index, unsigned step_index, osrmc_error_t* error) try {
-  auto* response_typed = reinterpret_cast<osrm::json::Object*>(response);
+double osrmc_route_response_step_duration(osrmc_route_response_t response, unsigned route_index, unsigned leg_index, unsigned step_index, osrmc_error_t* error) try {
+  auto* response_holder = osrmc_get_route_response(response);
+  auto& response_json = response_holder->json;
 
-  auto& routes = std::get<osrm::json::Array>(response_typed->values["routes"]);
+  auto& routes = std::get<osrm::json::Array>(response_json.values["routes"]);
   if (route_index >= routes.values.size()) {
     *error = new osrmc_error{"IndexOutOfBounds", "Route index out of bounds"};
-    return NAN;
+    return std::numeric_limits<double>::quiet_NaN();
   }
 
   auto& route = std::get<osrm::json::Object>(routes.values.at(route_index));
   const auto& legs = std::get<osrm::json::Array>(route.values.at("legs"));
   if (leg_index >= legs.values.size()) {
     *error = new osrmc_error{"IndexOutOfBounds", "Leg index out of bounds"};
-    return NAN;
+    return std::numeric_limits<double>::quiet_NaN();
   }
 
   const auto& leg = std::get<osrm::json::Object>(legs.values.at(leg_index));
   const auto& steps = std::get<osrm::json::Array>(leg.values.at("steps"));
   if (step_index >= steps.values.size()) {
     *error = new osrmc_error{"IndexOutOfBounds", "Step index out of bounds"};
-    return NAN;
+    return std::numeric_limits<double>::quiet_NaN();
   }
 
   const auto& step = std::get<osrm::json::Object>(steps.values.at(step_index));
@@ -1283,13 +1485,14 @@ float osrmc_route_response_step_duration(osrmc_route_response_t response, unsign
   return duration;
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
-  return NAN;
+  return std::numeric_limits<double>::quiet_NaN();
 }
 
 const char* osrmc_route_response_step_instruction(osrmc_route_response_t response, unsigned route_index, unsigned leg_index, unsigned step_index, osrmc_error_t* error) try {
-  auto* response_typed = reinterpret_cast<osrm::json::Object*>(response);
+  auto* response_holder = osrmc_get_route_response(response);
+  auto& response_json = response_holder->json;
 
-  auto& routes = std::get<osrm::json::Array>(response_typed->values["routes"]);
+  auto& routes = std::get<osrm::json::Array>(response_json.values["routes"]);
   if (route_index >= routes.values.size()) {
     *error = new osrmc_error{"IndexOutOfBounds", "Route index out of bounds"};
     return nullptr;
@@ -1327,8 +1530,8 @@ const char* osrmc_route_response_step_instruction(osrmc_route_response_t respons
 }
 
 osrmc_blob_t osrmc_route_response_json(osrmc_route_response_t response, osrmc_error_t* error) try {
-  auto* response_typed = reinterpret_cast<osrm::json::Object*>(response);
-  return osrmc_render_json(*response_typed);
+  auto* response_holder = osrmc_get_route_response(response);
+  return osrmc_render_json(response_holder->json);
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
   return nullptr;
@@ -1420,6 +1623,10 @@ osrmc_table_response_t osrmc_table(osrmc_osrm_t osrm, osrmc_table_params_t param
   auto* osrm_typed = reinterpret_cast<osrm::OSRM*>(osrm);
   auto* params_typed = reinterpret_cast<osrm::TableParameters*>(params);
 
+  if (!osrmc_ensure_json_format(*params_typed, "Table", error)) {
+    return nullptr;
+  }
+
   auto* out = new osrm::json::Object;
   const auto status = osrm_typed->Table(*params_typed, *out);
 
@@ -1437,13 +1644,13 @@ void osrmc_table_response_destruct(osrmc_table_response_t response) {
   delete reinterpret_cast<osrm::json::Object*>(response);
 }
 
-float osrmc_table_response_duration(osrmc_table_response_t response, unsigned long from, unsigned long to,
-                                    osrmc_error_t* error) try {
+double osrmc_table_response_duration(osrmc_table_response_t response, unsigned long from, unsigned long to,
+                                              osrmc_error_t* error) try {
   auto* response_typed = reinterpret_cast<osrm::json::Object*>(response);
 
   if (response_typed->values.find("durations") == response_typed->values.end()) {
     *error = new osrmc_error{"NoTable", "Table request not configured to return durations"};
-    return INFINITY;
+    return std::numeric_limits<double>::infinity();
   }
 
   auto& durations = std::get<osrm::json::Array>(response_typed->values["durations"]);
@@ -1452,23 +1659,23 @@ float osrmc_table_response_duration(osrmc_table_response_t response, unsigned lo
 
   if (std::holds_alternative<osrm::json::Null>(nullable)) {
     *error = new osrmc_error{"NoRoute", "Impossible route between points"};
-    return INFINITY;
+    return std::numeric_limits<double>::infinity();
   }
   auto duration = std::get<osrm::json::Number>(nullable).value;
 
   return duration;
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
-  return INFINITY;
+  return std::numeric_limits<double>::infinity();
 }
 
-float osrmc_table_response_distance(osrmc_table_response_t response, unsigned long from, unsigned long to,
-                                    osrmc_error_t* error) try {
+double osrmc_table_response_distance(osrmc_table_response_t response, unsigned long from, unsigned long to,
+                                              osrmc_error_t* error) try {
   auto* response_typed = reinterpret_cast<osrm::json::Object*>(response);
 
   if (response_typed->values.find("distances") == response_typed->values.end()) {
     *error = new osrmc_error{"NoTable", "Table request not configured to return distances"};
-    return INFINITY;
+    return std::numeric_limits<double>::infinity();
   }
 
   auto& distances = std::get<osrm::json::Array>(response_typed->values.at("distances"));
@@ -1477,14 +1684,14 @@ float osrmc_table_response_distance(osrmc_table_response_t response, unsigned lo
 
   if (std::holds_alternative<osrm::json::Null>(nullable)) {
     *error = new osrmc_error{"NoRoute", "Impossible route between points"};
-    return INFINITY;
+    return std::numeric_limits<double>::infinity();
   }
   auto distance = std::get<osrm::json::Number>(nullable).value;
 
   return distance;
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
-  return INFINITY;
+  return std::numeric_limits<double>::infinity();
 }
 
 unsigned osrmc_table_response_source_count(osrmc_table_response_t response, osrmc_error_t* error) try {
@@ -1528,7 +1735,7 @@ unsigned osrmc_table_response_destination_count(osrmc_table_response_t response,
   return 0;
 }
 
-int osrmc_table_response_get_duration_matrix(osrmc_table_response_t response, float* matrix, size_t max_size, osrmc_error_t* error) try {
+int osrmc_table_response_get_duration_matrix(osrmc_table_response_t response, double* matrix, size_t max_size, osrmc_error_t* error) try {
   auto* response_typed = reinterpret_cast<osrm::json::Object*>(response);
 
   if (response_typed->values.find("durations") == response_typed->values.end()) {
@@ -1563,9 +1770,9 @@ int osrmc_table_response_get_duration_matrix(osrmc_table_response_t response, fl
     for (size_t j = 0; j < num_destinations; ++j) {
       const auto& value = row.values.at(j);
       if (std::holds_alternative<osrm::json::Null>(value)) {
-        matrix[idx] = INFINITY;
+        matrix[idx] = std::numeric_limits<double>::infinity();
       } else {
-        matrix[idx] = static_cast<float>(std::get<osrm::json::Number>(value).value);
+        matrix[idx] = std::get<osrm::json::Number>(value).value;
       }
       ++idx;
     }
@@ -1577,7 +1784,7 @@ int osrmc_table_response_get_duration_matrix(osrmc_table_response_t response, fl
   return -1;
 }
 
-int osrmc_table_response_get_distance_matrix(osrmc_table_response_t response, float* matrix, size_t max_size, osrmc_error_t* error) try {
+int osrmc_table_response_get_distance_matrix(osrmc_table_response_t response, double* matrix, size_t max_size, osrmc_error_t* error) try {
   auto* response_typed = reinterpret_cast<osrm::json::Object*>(response);
 
   if (response_typed->values.find("distances") == response_typed->values.end()) {
@@ -1612,9 +1819,9 @@ int osrmc_table_response_get_distance_matrix(osrmc_table_response_t response, fl
     for (size_t j = 0; j < num_destinations; ++j) {
       const auto& value = row.values.at(j);
       if (std::holds_alternative<osrm::json::Null>(value)) {
-        matrix[idx] = INFINITY;
+        matrix[idx] = std::numeric_limits<double>::infinity();
       } else {
-        matrix[idx] = static_cast<float>(std::get<osrm::json::Number>(value).value);
+        matrix[idx] = std::get<osrm::json::Number>(value).value;
       }
       ++idx;
     }
@@ -1658,6 +1865,54 @@ void osrmc_match_params_destruct(osrmc_match_params_t params) {
   delete reinterpret_cast<osrm::MatchParameters*>(params);
 }
 
+void osrmc_match_params_add_steps(osrmc_match_params_t params, int on) {
+  osrmc_route_like_set_steps_flag(params, on);
+}
+
+void osrmc_match_params_add_alternatives(osrmc_match_params_t params, int on) {
+  osrmc_route_like_set_alternatives_flag(params, on);
+}
+
+void osrmc_match_params_set_geometries(osrmc_match_params_t params, const char* geometries, osrmc_error_t* error) try {
+  osrmc_route_like_set_geometries_impl(osrmc_route_like_params(params), geometries, error);
+} catch (const std::exception& e) {
+  osrmc_error_from_exception(e, error);
+}
+
+void osrmc_match_params_set_overview(osrmc_match_params_t params, const char* overview, osrmc_error_t* error) try {
+  osrmc_route_like_set_overview_impl(osrmc_route_like_params(params), overview, error);
+} catch (const std::exception& e) {
+  osrmc_error_from_exception(e, error);
+}
+
+void osrmc_match_params_set_continue_straight(osrmc_match_params_t params, int on, osrmc_error_t* error) try {
+  osrmc_route_like_set_continue_straight_impl(osrmc_route_like_params(params), on);
+} catch (const std::exception& e) {
+  osrmc_error_from_exception(e, error);
+}
+
+void osrmc_match_params_set_number_of_alternatives(osrmc_match_params_t params, unsigned count, osrmc_error_t* error) try {
+  osrmc_route_like_set_number_of_alternatives_value(params, count);
+} catch (const std::exception& e) {
+  osrmc_error_from_exception(e, error);
+}
+
+void osrmc_match_params_set_annotations(osrmc_match_params_t params, const char* annotations, osrmc_error_t* error) try {
+  osrmc_route_like_set_annotations_impl(osrmc_route_like_params(params), annotations, error);
+} catch (const std::exception& e) {
+  osrmc_error_from_exception(e, error);
+}
+
+void osrmc_match_params_add_waypoint(osrmc_match_params_t params, size_t index, osrmc_error_t* error) try {
+  osrmc_route_like_add_waypoint_impl(osrmc_route_like_params(params), index);
+} catch (const std::exception& e) {
+  osrmc_error_from_exception(e, error);
+}
+
+void osrmc_match_params_clear_waypoints(osrmc_match_params_t params) {
+  osrmc_route_like_clear_waypoints_impl(osrmc_route_like_params(params));
+}
+
 void osrmc_nearest_set_number_of_results(osrmc_nearest_params_t params, unsigned n, osrmc_error_t* error) try {
   auto* params_typed = reinterpret_cast<osrm::NearestParameters*>(params);
   params_typed->number_of_results = n;
@@ -1668,6 +1923,10 @@ void osrmc_nearest_set_number_of_results(osrmc_nearest_params_t params, unsigned
 osrmc_nearest_response_t osrmc_nearest(osrmc_osrm_t osrm, osrmc_nearest_params_t params, osrmc_error_t* error) try {
   auto* osrm_typed = reinterpret_cast<osrm::OSRM*>(osrm);
   auto* params_typed = reinterpret_cast<osrm::NearestParameters*>(params);
+
+  if (!osrmc_ensure_json_format(*params_typed, "Nearest", error)) {
+    return nullptr;
+  }
 
   auto* out = new osrm::json::Object;
   const auto status = osrm_typed->Nearest(*params_typed, *out);
@@ -1700,13 +1959,13 @@ unsigned osrmc_nearest_response_count(osrmc_nearest_response_t response, osrmc_e
   return 0;
 }
 
-float osrmc_nearest_response_latitude(osrmc_nearest_response_t response, unsigned index, osrmc_error_t* error) try {
+double osrmc_nearest_response_latitude(osrmc_nearest_response_t response, unsigned index, osrmc_error_t* error) try {
   auto* response_typed = reinterpret_cast<osrm::json::Object*>(response);
 
   const auto& waypoints = std::get<osrm::json::Array>(response_typed->values.at("waypoints"));
   if (index >= waypoints.values.size()) {
     *error = new osrmc_error{"IndexOutOfBounds", "Waypoint index out of bounds"};
-    return NAN;
+    return std::numeric_limits<double>::quiet_NaN();
   }
 
   const auto& waypoint = std::get<osrm::json::Object>(waypoints.values.at(index));
@@ -1716,16 +1975,16 @@ float osrmc_nearest_response_latitude(osrmc_nearest_response_t response, unsigne
   return latitude;
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
-  return NAN;
+  return std::numeric_limits<double>::quiet_NaN();
 }
 
-float osrmc_nearest_response_longitude(osrmc_nearest_response_t response, unsigned index, osrmc_error_t* error) try {
+double osrmc_nearest_response_longitude(osrmc_nearest_response_t response, unsigned index, osrmc_error_t* error) try {
   auto* response_typed = reinterpret_cast<osrm::json::Object*>(response);
 
   const auto& waypoints = std::get<osrm::json::Array>(response_typed->values.at("waypoints"));
   if (index >= waypoints.values.size()) {
     *error = new osrmc_error{"IndexOutOfBounds", "Waypoint index out of bounds"};
-    return NAN;
+    return std::numeric_limits<double>::quiet_NaN();
   }
 
   const auto& waypoint = std::get<osrm::json::Object>(waypoints.values.at(index));
@@ -1735,7 +1994,7 @@ float osrmc_nearest_response_longitude(osrmc_nearest_response_t response, unsign
   return longitude;
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
-  return NAN;
+  return std::numeric_limits<double>::quiet_NaN();
 }
 
 const char* osrmc_nearest_response_name(osrmc_nearest_response_t response, unsigned index, osrmc_error_t* error) try {
@@ -1760,13 +2019,13 @@ const char* osrmc_nearest_response_name(osrmc_nearest_response_t response, unsig
   return nullptr;
 }
 
-float osrmc_nearest_response_distance(osrmc_nearest_response_t response, unsigned index, osrmc_error_t* error) try {
+double osrmc_nearest_response_distance(osrmc_nearest_response_t response, unsigned index, osrmc_error_t* error) try {
   auto* response_typed = reinterpret_cast<osrm::json::Object*>(response);
 
   const auto& waypoints = std::get<osrm::json::Array>(response_typed->values.at("waypoints"));
   if (index >= waypoints.values.size()) {
     *error = new osrmc_error{"IndexOutOfBounds", "Waypoint index out of bounds"};
-    return NAN;
+    return std::numeric_limits<double>::infinity();
   }
 
   const auto& waypoint = std::get<osrm::json::Object>(waypoints.values.at(index));
@@ -1775,7 +2034,30 @@ float osrmc_nearest_response_distance(osrmc_nearest_response_t response, unsigne
   return distance;
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
-  return NAN;
+  return std::numeric_limits<double>::infinity();
+}
+
+const char* osrmc_nearest_response_hint(osrmc_nearest_response_t response, unsigned index, osrmc_error_t* error) try {
+  auto* response_typed = reinterpret_cast<osrm::json::Object*>(response);
+
+  const auto& waypoints = std::get<osrm::json::Array>(response_typed->values.at("waypoints"));
+  if (index >= waypoints.values.size()) {
+    *error = new osrmc_error{"IndexOutOfBounds", "Waypoint index out of bounds"};
+    return nullptr;
+  }
+
+  const auto& waypoint = std::get<osrm::json::Object>(waypoints.values.at(index));
+  const auto hint_iter = waypoint.values.find("hint");
+  if (hint_iter == waypoint.values.end()) {
+    *error = new osrmc_error{"NoHint", "Hint not available for this waypoint"};
+    return nullptr;
+  }
+
+  const auto& hint = std::get<osrm::json::String>(hint_iter->second).value;
+  return hint.c_str();
+} catch (const std::exception& e) {
+  osrmc_error_from_exception(e, error);
+  return nullptr;
 }
 
 osrmc_blob_t osrmc_nearest_response_json(osrmc_nearest_response_t response, osrmc_error_t* error) try {
@@ -1819,6 +2101,10 @@ void osrmc_match_params_set_tidy(osrmc_match_params_t params, int on, osrmc_erro
 osrmc_match_response_t osrmc_match(osrmc_osrm_t osrm, osrmc_match_params_t params, osrmc_error_t* error) try {
   auto* osrm_typed = reinterpret_cast<osrm::OSRM*>(osrm);
   auto* params_typed = reinterpret_cast<osrm::MatchParameters*>(params);
+
+  if (!osrmc_ensure_json_format(*params_typed, "Match", error)) {
+    return nullptr;
+  }
 
   auto* out = new osrm::json::Object;
   const auto status = osrm_typed->Match(*params_typed, *out);
@@ -1865,13 +2151,13 @@ unsigned osrmc_match_response_tracepoint_count(osrmc_match_response_t response, 
   return 0;
 }
 
-float osrmc_match_response_route_distance(osrmc_match_response_t response, unsigned route_index, osrmc_error_t* error) try {
+double osrmc_match_response_route_distance(osrmc_match_response_t response, unsigned route_index, osrmc_error_t* error) try {
   auto* response_typed = reinterpret_cast<osrm::json::Object*>(response);
 
   const auto& matchings = std::get<osrm::json::Array>(response_typed->values.at("matchings"));
   if (route_index >= matchings.values.size()) {
     *error = new osrmc_error{"IndexOutOfBounds", "Route index out of bounds"};
-    return NAN;
+    return std::numeric_limits<double>::infinity();
   }
 
   const auto& route = std::get<osrm::json::Object>(matchings.values.at(route_index));
@@ -1880,16 +2166,16 @@ float osrmc_match_response_route_distance(osrmc_match_response_t response, unsig
   return distance;
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
-  return NAN;
+  return std::numeric_limits<double>::infinity();
 }
 
-float osrmc_match_response_route_duration(osrmc_match_response_t response, unsigned route_index, osrmc_error_t* error) try {
+double osrmc_match_response_route_duration(osrmc_match_response_t response, unsigned route_index, osrmc_error_t* error) try {
   auto* response_typed = reinterpret_cast<osrm::json::Object*>(response);
 
   const auto& matchings = std::get<osrm::json::Array>(response_typed->values.at("matchings"));
   if (route_index >= matchings.values.size()) {
     *error = new osrmc_error{"IndexOutOfBounds", "Route index out of bounds"};
-    return NAN;
+    return std::numeric_limits<double>::infinity();
   }
 
   const auto& route = std::get<osrm::json::Object>(matchings.values.at(route_index));
@@ -1898,22 +2184,22 @@ float osrmc_match_response_route_duration(osrmc_match_response_t response, unsig
   return duration;
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
-  return NAN;
+  return std::numeric_limits<double>::infinity();
 }
 
-float osrmc_match_response_route_confidence(osrmc_match_response_t response, unsigned route_index, osrmc_error_t* error) try {
+double osrmc_match_response_route_confidence(osrmc_match_response_t response, unsigned route_index, osrmc_error_t* error) try {
   auto* response_typed = reinterpret_cast<osrm::json::Object*>(response);
 
   const auto& matchings = std::get<osrm::json::Array>(response_typed->values.at("matchings"));
   if (route_index >= matchings.values.size()) {
     *error = new osrmc_error{"IndexOutOfBounds", "Route index out of bounds"};
-    return NAN;
+    return std::numeric_limits<double>::quiet_NaN();
   }
 
   const auto& route = std::get<osrm::json::Object>(matchings.values.at(route_index));
   if (route.values.find("confidence") == route.values.end()) {
     *error = new osrmc_error{"NoConfidence", "Confidence not available for this route"};
-    return NAN;
+    return std::numeric_limits<double>::quiet_NaN();
   }
 
   const auto confidence = std::get<osrm::json::Number>(route.values.at("confidence")).value;
@@ -1921,22 +2207,22 @@ float osrmc_match_response_route_confidence(osrmc_match_response_t response, uns
   return confidence;
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
-  return NAN;
+  return std::numeric_limits<double>::quiet_NaN();
 }
 
-float osrmc_match_response_tracepoint_latitude(osrmc_match_response_t response, unsigned index, osrmc_error_t* error) try {
+double osrmc_match_response_tracepoint_latitude(osrmc_match_response_t response, unsigned index, osrmc_error_t* error) try {
   auto* response_typed = reinterpret_cast<osrm::json::Object*>(response);
 
   const auto& tracepoints = std::get<osrm::json::Array>(response_typed->values.at("tracepoints"));
   if (index >= tracepoints.values.size()) {
     *error = new osrmc_error{"IndexOutOfBounds", "Tracepoint index out of bounds"};
-    return NAN;
+    return std::numeric_limits<double>::quiet_NaN();
   }
 
   const auto& tracepoint_value = tracepoints.values.at(index);
   if (std::holds_alternative<osrm::json::Null>(tracepoint_value)) {
     *error = new osrmc_error{"NullTracepoint", "Tracepoint was omitted (outlier)"};
-    return NAN;
+    return std::numeric_limits<double>::quiet_NaN();
   }
 
   const auto& tracepoint = std::get<osrm::json::Object>(tracepoint_value);
@@ -1946,22 +2232,22 @@ float osrmc_match_response_tracepoint_latitude(osrmc_match_response_t response, 
   return latitude;
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
-  return NAN;
+  return std::numeric_limits<double>::quiet_NaN();
 }
 
-float osrmc_match_response_tracepoint_longitude(osrmc_match_response_t response, unsigned index, osrmc_error_t* error) try {
+double osrmc_match_response_tracepoint_longitude(osrmc_match_response_t response, unsigned index, osrmc_error_t* error) try {
   auto* response_typed = reinterpret_cast<osrm::json::Object*>(response);
 
   const auto& tracepoints = std::get<osrm::json::Array>(response_typed->values.at("tracepoints"));
   if (index >= tracepoints.values.size()) {
     *error = new osrmc_error{"IndexOutOfBounds", "Tracepoint index out of bounds"};
-    return NAN;
+    return std::numeric_limits<double>::quiet_NaN();
   }
 
   const auto& tracepoint_value = tracepoints.values.at(index);
   if (std::holds_alternative<osrm::json::Null>(tracepoint_value)) {
     *error = new osrmc_error{"NullTracepoint", "Tracepoint was omitted (outlier)"};
-    return NAN;
+    return std::numeric_limits<double>::quiet_NaN();
   }
 
   const auto& tracepoint = std::get<osrm::json::Object>(tracepoint_value);
@@ -1971,7 +2257,7 @@ float osrmc_match_response_tracepoint_longitude(osrmc_match_response_t response,
   return longitude;
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
-  return NAN;
+  return std::numeric_limits<double>::quiet_NaN();
 }
 
 int osrmc_match_response_tracepoint_is_null(osrmc_match_response_t response, unsigned index, osrmc_error_t* error) try {
@@ -2059,6 +2345,44 @@ void osrmc_trip_params_add_destination(osrmc_trip_params_t params, const char* d
   osrmc_error_from_exception(e, error);
 }
 
+void osrmc_trip_params_add_steps(osrmc_trip_params_t params, int on) {
+  osrmc_route_like_set_steps_flag(params, on);
+}
+
+void osrmc_trip_params_add_alternatives(osrmc_trip_params_t params, int on) {
+  osrmc_route_like_set_alternatives_flag(params, on);
+}
+
+void osrmc_trip_params_set_geometries(osrmc_trip_params_t params, const char* geometries, osrmc_error_t* error) try {
+  osrmc_route_like_set_geometries_impl(osrmc_route_like_params(params), geometries, error);
+} catch (const std::exception& e) {
+  osrmc_error_from_exception(e, error);
+}
+
+void osrmc_trip_params_set_overview(osrmc_trip_params_t params, const char* overview, osrmc_error_t* error) try {
+  osrmc_route_like_set_overview_impl(osrmc_route_like_params(params), overview, error);
+} catch (const std::exception& e) {
+  osrmc_error_from_exception(e, error);
+}
+
+void osrmc_trip_params_set_continue_straight(osrmc_trip_params_t params, int on, osrmc_error_t* error) try {
+  osrmc_route_like_set_continue_straight_impl(osrmc_route_like_params(params), on);
+} catch (const std::exception& e) {
+  osrmc_error_from_exception(e, error);
+}
+
+void osrmc_trip_params_set_number_of_alternatives(osrmc_trip_params_t params, unsigned count, osrmc_error_t* error) try {
+  osrmc_route_like_set_number_of_alternatives_value(params, count);
+} catch (const std::exception& e) {
+  osrmc_error_from_exception(e, error);
+}
+
+void osrmc_trip_params_set_annotations(osrmc_trip_params_t params, const char* annotations, osrmc_error_t* error) try {
+  osrmc_route_like_set_annotations_impl(osrmc_route_like_params(params), annotations, error);
+} catch (const std::exception& e) {
+  osrmc_error_from_exception(e, error);
+}
+
 void osrmc_trip_params_clear_waypoints(osrmc_trip_params_t params) {
   auto* params_typed = reinterpret_cast<osrm::TripParameters*>(params);
   params_typed->waypoints.clear();
@@ -2074,6 +2398,10 @@ void osrmc_trip_params_add_waypoint(osrmc_trip_params_t params, size_t index, os
 osrmc_trip_response_t osrmc_trip(osrmc_osrm_t osrm, osrmc_trip_params_t params, osrmc_error_t* error) try {
   auto* osrm_typed = reinterpret_cast<osrm::OSRM*>(osrm);
   auto* params_typed = reinterpret_cast<osrm::TripParameters*>(params);
+
+  if (!osrmc_ensure_json_format(*params_typed, "Trip", error)) {
+    return nullptr;
+  }
 
   auto* out = new osrm::json::Object;
   const auto status = osrm_typed->Trip(*params_typed, *out);
@@ -2092,7 +2420,7 @@ void osrmc_trip_response_destruct(osrmc_trip_response_t response) {
   delete reinterpret_cast<osrm::json::Object*>(response);
 }
 
-float osrmc_trip_response_distance(osrmc_trip_response_t response, osrmc_error_t* error) try {
+double osrmc_trip_response_distance(osrmc_trip_response_t response, osrmc_error_t* error) try {
   auto* response_typed = reinterpret_cast<osrm::json::Object*>(response);
 
   auto& routes = std::get<osrm::json::Array>(response_typed->values["routes"]);
@@ -2102,10 +2430,10 @@ float osrmc_trip_response_distance(osrmc_trip_response_t response, osrmc_error_t
   return distance;
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
-  return INFINITY;
+  return std::numeric_limits<double>::infinity();
 }
 
-float osrmc_trip_response_duration(osrmc_trip_response_t response, osrmc_error_t* error) try {
+double osrmc_trip_response_duration(osrmc_trip_response_t response, osrmc_error_t* error) try {
   auto* response_typed = reinterpret_cast<osrm::json::Object*>(response);
 
   auto& routes = std::get<osrm::json::Array>(response_typed->values["routes"]);
@@ -2115,7 +2443,7 @@ float osrmc_trip_response_duration(osrmc_trip_response_t response, osrmc_error_t
   return duration;
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
-  return INFINITY;
+  return std::numeric_limits<double>::infinity();
 }
 
 unsigned osrmc_trip_response_waypoint_count(osrmc_trip_response_t response, osrmc_error_t* error) try {
@@ -2132,13 +2460,13 @@ unsigned osrmc_trip_response_waypoint_count(osrmc_trip_response_t response, osrm
   return 0;
 }
 
-float osrmc_trip_response_waypoint_latitude(osrmc_trip_response_t response, unsigned index, osrmc_error_t* error) try {
+double osrmc_trip_response_waypoint_latitude(osrmc_trip_response_t response, unsigned index, osrmc_error_t* error) try {
   auto* response_typed = reinterpret_cast<osrm::json::Object*>(response);
 
   const auto& waypoints = std::get<osrm::json::Array>(response_typed->values.at("waypoints"));
   if (index >= waypoints.values.size()) {
     *error = new osrmc_error{"IndexOutOfBounds", "Waypoint index out of bounds"};
-    return NAN;
+    return std::numeric_limits<double>::quiet_NaN();
   }
 
   const auto& waypoint = std::get<osrm::json::Object>(waypoints.values.at(index));
@@ -2148,16 +2476,16 @@ float osrmc_trip_response_waypoint_latitude(osrmc_trip_response_t response, unsi
   return latitude;
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
-  return NAN;
+  return std::numeric_limits<double>::quiet_NaN();
 }
 
-float osrmc_trip_response_waypoint_longitude(osrmc_trip_response_t response, unsigned index, osrmc_error_t* error) try {
+double osrmc_trip_response_waypoint_longitude(osrmc_trip_response_t response, unsigned index, osrmc_error_t* error) try {
   auto* response_typed = reinterpret_cast<osrm::json::Object*>(response);
 
   const auto& waypoints = std::get<osrm::json::Array>(response_typed->values.at("waypoints"));
   if (index >= waypoints.values.size()) {
     *error = new osrmc_error{"IndexOutOfBounds", "Waypoint index out of bounds"};
-    return NAN;
+    return std::numeric_limits<double>::quiet_NaN();
   }
 
   const auto& waypoint = std::get<osrm::json::Object>(waypoints.values.at(index));
@@ -2167,7 +2495,7 @@ float osrmc_trip_response_waypoint_longitude(osrmc_trip_response_t response, uns
   return longitude;
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
-  return NAN;
+  return std::numeric_limits<double>::quiet_NaN();
 }
 
 osrmc_blob_t osrmc_trip_response_json(osrmc_trip_response_t response, osrmc_error_t* error) try {
@@ -2218,16 +2546,21 @@ osrmc_tile_response_t osrmc_tile(osrmc_osrm_t osrm, osrmc_tile_params_t params, 
   auto* osrm_typed = reinterpret_cast<osrm::OSRM*>(osrm);
   auto* params_typed = reinterpret_cast<osrm::TileParameters*>(params);
 
-  auto* out = new std::string;
-  const auto status = osrm_typed->Tile(*params_typed, *out);
+  osrm::engine::api::ResultT result = std::string();
+  const auto status = osrm_typed->Tile(*params_typed, result);
 
-  if (status == osrm::Status::Ok)
+  if (status == osrm::Status::Ok) {
+    auto* out = new std::string(std::move(std::get<std::string>(result)));
     return reinterpret_cast<osrmc_tile_response_t>(out);
+  }
 
-  // On error, Tile service may return JSON error in string format
-  // But typically it returns empty string or error status
-  *error = new osrmc_error{"TileError", "Failed to generate tile"};
-  delete out;
+  if (std::holds_alternative<osrm::json::Object>(result)) {
+    auto& json = std::get<osrm::json::Object>(result);
+    osrmc_error_from_json(json, error);
+  } else {
+    *error = new osrmc_error{"TileError", "Failed to generate tile"};
+  }
+
   return nullptr;
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
