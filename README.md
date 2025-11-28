@@ -1,7 +1,7 @@
 # libosrmc
 
 A fork of Daniel Hofmann's C wrapper around the C++ `libosrm` library.
-To facilitate the development of a Julia wrapper for the OSRM library, Daniel's library was patched and expanded.
+To facilitate the development of a Julia wrapper for the OSRM library, the fork was patched and expanded.
 See [OpenSourceRoutingMachine.jl](https://github.com/moviro-hub/OpenSourceRoutingMachine.jl) if you are interested in the Julia package.
 
 ##### Dependencies
