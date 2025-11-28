@@ -1,11 +1,12 @@
 # libosrmc
 
-A fork of Daniel Hofmann C wrapper around the C++ libosrm library.
-This fork was patched and extended to be used for a Julia wrapper for the OSRM library (see [OpenSourceRoutingMachine.jl](https://github.com/moviro-hub/OpenSourceRoutingMachine.jl)).
+A fork of Daniel Hofmann's C wrapper around the C++ `libosrm` library.
+To facilitate the development of a Julia wrapper for the OSRM library, Daniel's library was patched and expanded.
+See [OpenSourceRoutingMachine.jl](https://github.com/moviro-hub/OpenSourceRoutingMachine.jl) if you are interested in the Julia package.
 
 ##### Dependencies
 
-- **OSRM 6.0**: libosrm
+- **OSRM 6.0**: [OSRM](https://github.com/Project-OSRM/osrm-backend)
 - **C++20 compiler**: GCC 10+ or Clang 12+
 - **pkg-config**: For discovering OSRM configuration
 
@@ -25,13 +26,6 @@ make
 sudo make install
 
 ```
-
-The build system automatically detects your platform:
-- **Linux**: `libosrmc.so`
-- **macOS**: `libosrmc.dylib`
-- **Windows**: `libosrmc.dll` + `libosrmc.dll.a`
-
-Installation prefix defaults to `/usr/local` (Unix) or `/mingw64` (Windows). Modify `config.mk` to change.
 
 **Custom Installation Path:**
 ```bash
