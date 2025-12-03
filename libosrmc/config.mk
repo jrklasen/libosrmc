@@ -2,112 +2,113 @@
 
 VERSION_MAJOR = 6
 VERSION_MINOR = 0
-PREFIX ?= /usr/local
 
-# Detect target platform
-TARGET := $(shell echo $$target)
+PREFIX ?= /usr/local
+PKG_CONFIG_PATH ?= $(PREFIX)/lib/pkgconfig
+
+# Platform detection: check environment first (for cross-compilation), then auto-detect
+# Fallback chain: explicit target -> Windows OS -> uname -> default to linux
+# This allows cross-compilation while still working out-of-the-box
+TARGET := $(shell echo $$target 2>/dev/null)
 ifeq ($(TARGET),)
-    UNAME_S := $(shell uname -s 2>/dev/null)
     ifeq ($(OS),Windows_NT)
         TARGET := mingw
-    else ifeq ($(UNAME_S),Darwin)
-        TARGET := apple
     else
-        TARGET := linux
+        UNAME_S := $(shell uname -s 2>/dev/null || echo Unknown)
+        ifeq ($(UNAME_S),Darwin)
+            TARGET := apple
+        else ifeq ($(UNAME_S),Linux)
+            TARGET := linux
+        else ifneq ($(findstring MINGW,$(UNAME_S)),)
+            TARGET := mingw
+        else ifneq ($(findstring MSYS,$(UNAME_S)),)
+            TARGET := mingw
+        else
+            TARGET := linux
+        endif
     endif
 else
     ifneq ($(findstring -mingw,$(TARGET)),)
         TARGET := mingw
     else ifneq ($(findstring -apple-,$(TARGET)),)
         TARGET := apple
-    else
+    else ifneq ($(findstring -linux,$(TARGET)),)
         TARGET := linux
     endif
 endif
 
-# Platform-specific settings
+# Platform-specific settings: each platform requires different linking approaches
 CXXFLAGS_STDLIB =
 ifeq ($(TARGET),mingw)
     SHARED_EXT = .dll
     IMPLIB_EXT = .dll.a
-    PKG_CONFIG_PATH := $(PREFIX)/lib/pkgconfig
+    # Windows requires import libraries for linking; static runtime avoids DLL hell
     LDFLAGS_SHARED = -shared -Wl,--out-implib,libosrmc$(IMPLIB_EXT)
-    LDFLAGS_RPATH =
     STDCPP_LIB = -static-libgcc -static-libstdc++
 else ifeq ($(TARGET),apple)
     SHARED_EXT = .dylib
     IMPLIB_EXT =
-    PKG_CONFIG_PATH := $(PREFIX)/lib/pkgconfig
+    # macOS needs install_name for library versioning; RPATH for non-standard installs
     LDFLAGS_SHARED = -dynamiclib -install_name $(PREFIX)/lib/libosrmc.$(VERSION_MAJOR)$(SHARED_EXT)
-    LDFLAGS_RPATH = -Wl,-rpath,$(PREFIX)/lib -Wl,-undefined,dynamic_lookup
+    LDFLAGS_RPATH = -Wl,-rpath,$(PREFIX)/lib
     STDCPP_LIB = -lc++
     CXXFLAGS_STDLIB = -stdlib=libc++
 else
     SHARED_EXT = .so
     IMPLIB_EXT =
-    PKG_CONFIG_PATH := $(PREFIX)/lib/pkgconfig
+    # Linux uses soname for versioning; RPATH allows relocatable installs
     LDFLAGS_SHARED = -shared -Wl,-soname,libosrmc.so.$(VERSION_MAJOR)
     LDFLAGS_RPATH = -Wl,-rpath,$(PREFIX)/lib
     STDCPP_LIB = -lstdc++
 endif
 
-# Compiler settings
 CXX ?= g++
-CXXFLAGS_BASE = -O2 -Wall -Wextra -pedantic -std=c++20 -fvisibility=hidden -fPIC -fno-rtti
 
-# Validate pkg-config and get OSRM configuration
+# Compiler flags: visibility=hidden reduces exported symbols (smaller binaries, faster linking)
+# fPIC required for shared libraries; no-rtti reduces size; pedantic catches portability issues
+CXX_OPTIMIZATION_LEVEL = -O2
+CXX_WARNING_FLAGS = -Wall -Wextra -pedantic
+CXX_STANDARD = -std=c++20
+CXX_VISIBILITY_FLAG = -fvisibility=hidden
+CXX_POSITION_INDEPENDENT = -fPIC
+CXX_NO_RTTI = -fno-rtti
+
+CXXFLAGS_BASE = $(CXX_OPTIMIZATION_LEVEL) $(CXX_WARNING_FLAGS) $(CXX_STANDARD) $(CXX_VISIBILITY_FLAG) $(CXX_POSITION_INDEPENDENT) $(CXX_NO_RTTI)
+
+# Skip pkg-config checks for targets that don't need OSRM (allows clean/show-config without deps)
 SKIP_DEPS := $(filter clean show-config,$(MAKECMDGOALS))
 ifeq ($(SKIP_DEPS),)
-    # We're building - check dependencies
     PKG_CONFIG := $(shell which pkg-config 2>/dev/null)
     ifeq ($(PKG_CONFIG),)
         $(error pkg-config not found. Please install pkg-config.)
     endif
 
-    # Check if libosrm.pc exists
-    OSRM_PC := $(PKG_CONFIG_PATH)/libosrm.pc
-    ifeq ($(wildcard $(OSRM_PC)),)
-        $(warning libosrm.pc not found at $(OSRM_PC))
-        $(warning Trying system pkg-config path...)
-        PKG_CONFIG_PATH := $(shell pkg-config --variable pc_path pkg-config 2>/dev/null | cut -d: -f1)
-        OSRM_PC := $(PKG_CONFIG_PATH)/libosrm.pc
-        ifeq ($(wildcard $(OSRM_PC)),)
-            $(error libosrm.pc not found. Please ensure OSRM is installed and pkg-config can find it.)
-        endif
+    ifeq ($(shell PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) $(PKG_CONFIG) --exists libosrm 2>/dev/null && echo yes),)
+        $(error libosrm not found. Please ensure OSRM is installed and pkg-config can find it.)
     endif
 
-    # Get OSRM compile flags (explicit, no shell hacks)
     OSRM_CFLAGS := $(shell PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) $(PKG_CONFIG) --cflags libosrm 2>/dev/null)
-    ifeq ($(OSRM_CFLAGS),)
-        $(error Failed to get OSRM compile flags. Check that libosrm is properly installed.)
-    endif
-
-    # Get OSRM library directory (explicit path)
     OSRM_LIBDIR := $(shell PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) $(PKG_CONFIG) --variable=libdir libosrm 2>/dev/null)
-    ifeq ($(OSRM_LIBDIR),)
-        OSRM_LIBDIR := $(PREFIX)/lib
+    OSRM_LDFLAGS := $(shell PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) $(PKG_CONFIG) --libs libosrm 2>/dev/null)
+
+    ifeq ($(OSRM_CFLAGS)$(OSRM_LDFLAGS),)
+        $(error Failed to get OSRM configuration. Check that libosrm is properly installed.)
     endif
 
-    # Get OSRM link flags (explicit, prefer shared libraries)
-    OSRM_LDFLAGS := $(shell PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) $(PKG_CONFIG) --libs libosrm 2>/dev/null)
-    ifeq ($(OSRM_LDFLAGS),)
-        $(error Failed to get OSRM link flags. Check that libosrm is properly installed.)
-    endif
+    OSRM_LIBDIR ?= $(PREFIX)/lib
 else
-    # For clean/show-config, set defaults (won't be used)
     OSRM_CFLAGS :=
     OSRM_LIBDIR := $(PREFIX)/lib
     OSRM_LDFLAGS :=
 endif
 
-# Combine all flags
 CXXFLAGS = $(CXXFLAGS_BASE) $(CXXFLAGS_STDLIB) $(OSRM_CFLAGS)
 ifneq ($(EXTRA_CXXFLAGS),)
     CXXFLAGS += $(EXTRA_CXXFLAGS)
 endif
 
-# Link flags: explicit library path, RPATH for runtime resolution, OSRM libs, then C++ stdlib
+# LDFLAGS order: shared lib flags -> RPATH -> library search paths -> libraries -> stdlib
+# This order ensures proper symbol resolution and runtime library discovery
 LDFLAGS = $(LDFLAGS_SHARED) $(LDFLAGS_RPATH) -L$(OSRM_LIBDIR) $(OSRM_LDFLAGS) $(STDCPP_LIB)
 
-# Export for Makefile
 export PKG_CONFIG_PATH

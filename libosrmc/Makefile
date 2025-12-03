@@ -2,16 +2,20 @@
 
 include config.mk
 
-# Build targets
 LIBRARY = libosrmc$(SHARED_EXT)
 OBJECTS = osrmc.o
 HEADER = osrmc.h
+
+FILE_MODE = 0644
+EXEC_MODE = 0755
+
+RM ?= rm -f
 
 .PHONY: all clean install check-deps
 
 all: check-deps $(LIBRARY)
 
-# Check dependencies before building
+# Check dependencies: fail early if OSRM isn't available (better error than linker failure)
 check-deps:
 	@echo "Checking dependencies..."
 	@if [ -z "$(PKG_CONFIG)" ]; then \
@@ -25,46 +29,43 @@ check-deps:
 	fi
 	@echo "Dependencies OK"
 
-# Compile source
 %.o: %.cc $(HEADER)
 	@echo "Compiling $<..."
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
-# Link library with explicit paths and RPATH
-# Put object files first for better symbol resolution on Windows
+# Object files first: Windows linkers resolve symbols left-to-right, so objects must come before libraries
 $(LIBRARY): $(OBJECTS) $(HEADER)
 	@echo "Linking $(LIBRARY)..."
 	@echo "  Library directory: $(OSRM_LIBDIR)"
 	@echo "  RPATH: $(LDFLAGS_RPATH)"
-	$(CXX) $(LDFLAGS_SHARED) $(LDFLAGS_RPATH) -o $@ $(OBJECTS) -L$(OSRM_LIBDIR) $(OSRM_LDFLAGS) $(STDCPP_LIB)
+	$(CXX) $(LDFLAGS) -o $@ $(OBJECTS)
 	@echo "Build complete: $(LIBRARY)"
 
-# Install library and headers
+# Windows: DLLs go in bin/, import libs in lib/ (Windows convention)
+# Unix: shared libs in lib/ with versioned symlinks (allows multiple versions)
 install: $(LIBRARY)
 	@echo "Installing to $(DESTDIR)$(PREFIX)..."
-	@mkdir -p $(DESTDIR)$(PREFIX)/include/osrmc
-	install -m 0644 $(HEADER) $(DESTDIR)$(PREFIX)/include/osrmc
+	@mkdir -p $(DESTDIR)$(PREFIX)/include/osrmc || exit 1
+	install -m $(FILE_MODE) $(HEADER) $(DESTDIR)$(PREFIX)/include/osrmc || exit 1
 ifeq ($(TARGET),mingw)
-	@mkdir -p $(DESTDIR)$(PREFIX)/bin $(DESTDIR)$(PREFIX)/lib
-	install -m 0755 $(LIBRARY) $(DESTDIR)$(PREFIX)/bin
-	install -m 0755 libosrmc$(IMPLIB_EXT) $(DESTDIR)$(PREFIX)/lib
+	@mkdir -p $(DESTDIR)$(PREFIX)/bin $(DESTDIR)$(PREFIX)/lib || exit 1
+	install -m $(EXEC_MODE) $(LIBRARY) $(DESTDIR)$(PREFIX)/bin || exit 1
+	install -m $(EXEC_MODE) libosrmc$(IMPLIB_EXT) $(DESTDIR)$(PREFIX)/lib || exit 1
 else
-	@mkdir -p $(DESTDIR)$(PREFIX)/lib
-	install -m 0755 $(LIBRARY) $(DESTDIR)$(PREFIX)/lib
+	@mkdir -p $(DESTDIR)$(PREFIX)/lib || exit 1
+	install -m $(EXEC_MODE) $(LIBRARY) $(DESTDIR)$(PREFIX)/lib || exit 1
 ifeq ($(TARGET),linux)
-	ln -sf $(LIBRARY) $(DESTDIR)$(PREFIX)/lib/$(LIBRARY).$(VERSION_MAJOR)
-	ln -sf $(LIBRARY) $(DESTDIR)$(PREFIX)/lib/$(LIBRARY).$(VERSION_MAJOR).$(VERSION_MINOR)
+	ln -sf $(LIBRARY) $(DESTDIR)$(PREFIX)/lib/$(LIBRARY).$(VERSION_MAJOR) || exit 1
+	ln -sf $(LIBRARY) $(DESTDIR)$(PREFIX)/lib/$(LIBRARY).$(VERSION_MAJOR).$(VERSION_MINOR) || exit 1
 endif
 endif
 	@echo "Installation complete"
 
-# Clean build artifacts
 clean:
 	@echo "Cleaning..."
 	$(RM) $(OBJECTS) $(LIBRARY) libosrmc$(IMPLIB_EXT)
 	@echo "Clean complete"
 
-# Show build configuration
 show-config:
 	@echo "Build Configuration:"
 	@echo "  Target: $(TARGET)"

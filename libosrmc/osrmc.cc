@@ -62,6 +62,54 @@ struct osrmc_route_response final {
 
 namespace {
 
+// Constants for JSON encoding
+constexpr unsigned char JSON_CONTROL_CHAR_THRESHOLD = 0x20;
+constexpr unsigned char JSON_HEX_MASK = 0x0F;
+constexpr int JSON_NUMBER_PRECISION = 10;
+
+// Constants for coordinate handling
+constexpr size_t COORDINATE_LONGITUDE_INDEX = 0;
+constexpr size_t COORDINATE_LATITUDE_INDEX = 1;
+constexpr size_t MIN_COORDINATE_PAIR_SIZE = 2;
+
+// Constants for default values
+constexpr int UNLIMITED_INT_VALUE = -1;
+constexpr double UNLIMITED_DOUBLE_VALUE = -1.0;
+constexpr unsigned DEFAULT_MAX_ALTERNATIVES = 3;
+
+// Helper function to validate config pointer
+static bool osrmc_validate_config(osrmc_config_t config, osrmc_error_t* error) {
+  if (!config) {
+    if (error) {
+      *error = new osrmc_error{"InvalidArgument", "Config must not be null"};
+    }
+    return false;
+  }
+  return true;
+}
+
+// Helper function to validate params pointer
+static bool osrmc_validate_params(osrmc_params_t params, osrmc_error_t* error) {
+  if (!params) {
+    if (error) {
+      *error = new osrmc_error{"InvalidArgument", "Params must not be null"};
+    }
+    return false;
+  }
+  return true;
+}
+
+// Helper function to validate osrm pointer
+static bool osrmc_validate_osrm(osrmc_osrm_t osrm, osrmc_error_t* error) {
+  if (!osrm) {
+    if (error) {
+      *error = new osrmc_error{"InvalidArgument", "OSRM instance must not be null"};
+    }
+    return false;
+  }
+  return true;
+}
+
 void osrmc_json_append_escaped(std::string& out, std::string_view value) {
   for (const unsigned char ch : value) {
     switch (ch) {
@@ -87,11 +135,11 @@ void osrmc_json_append_escaped(std::string& out, std::string_view value) {
         out += "\\t";
         break;
       default:
-        if (ch < 0x20) {
+        if (ch < JSON_CONTROL_CHAR_THRESHOLD) {
           constexpr char hex_digits[] = "0123456789abcdef";
           out += "\\u00";
-          out.push_back(hex_digits[(ch >> 4) & 0x0F]);
-          out.push_back(hex_digits[ch & 0x0F]);
+          out.push_back(hex_digits[(ch >> 4) & JSON_HEX_MASK]);
+          out.push_back(hex_digits[ch & JSON_HEX_MASK]);
         } else {
           out.push_back(static_cast<char>(ch));
         }
@@ -116,7 +164,7 @@ struct osrmc_json_renderer {
     }
     std::ostringstream stream;
     stream.imbue(std::locale::classic());
-    stream.precision(10);
+    stream.precision(JSON_NUMBER_PRECISION);
     stream << std::defaultfloat << value.value;
     out += stream.str();
   }
@@ -408,7 +456,11 @@ const char* osrmc_error_code(osrmc_error_t error) { return error->code.c_str(); 
 
 const char* osrmc_error_message(osrmc_error_t error) { return error->message.c_str(); }
 
-void osrmc_error_destruct(osrmc_error_t error) { delete error; }
+void osrmc_error_destruct(osrmc_error_t error) {
+  if (error) {
+    delete error;
+  }
+}
 
 osrmc_config_t osrmc_config_construct(const char* base_path, osrmc_error_t* error) try {
   auto* out = new osrm::EngineConfig;
@@ -429,9 +481,16 @@ osrmc_config_t osrmc_config_construct(const char* base_path, osrmc_error_t* erro
   return nullptr;
 }
 
-void osrmc_config_destruct(osrmc_config_t config) { delete reinterpret_cast<osrm::EngineConfig*>(config); }
+void osrmc_config_destruct(osrmc_config_t config) {
+  if (config) {
+    delete reinterpret_cast<osrm::EngineConfig*>(config);
+  }
+}
 
 void osrmc_config_set_algorithm(osrmc_config_t config, osrmc_algorithm_t algorithm, osrmc_error_t* error) try {
+  if (!osrmc_validate_config(config, error)) {
+    return;
+  }
   auto* config_typed = reinterpret_cast<osrm::EngineConfig*>(config);
 
   switch (algorithm) {
@@ -450,6 +509,9 @@ void osrmc_config_set_algorithm(osrmc_config_t config, osrmc_algorithm_t algorit
 }
 
 void osrmc_config_set_max_locations_trip(osrmc_config_t config, int max_locations, osrmc_error_t* error) try {
+  if (!osrmc_validate_config(config, error)) {
+    return;
+  }
   auto* config_typed = reinterpret_cast<osrm::EngineConfig*>(config);
   config_typed->max_locations_trip = max_locations;
 } catch (const std::exception& e) {
@@ -457,6 +519,9 @@ void osrmc_config_set_max_locations_trip(osrmc_config_t config, int max_location
 }
 
 void osrmc_config_set_max_locations_viaroute(osrmc_config_t config, int max_locations, osrmc_error_t* error) try {
+  if (!osrmc_validate_config(config, error)) {
+    return;
+  }
   auto* config_typed = reinterpret_cast<osrm::EngineConfig*>(config);
   config_typed->max_locations_viaroute = max_locations;
 } catch (const std::exception& e) {
@@ -464,6 +529,9 @@ void osrmc_config_set_max_locations_viaroute(osrmc_config_t config, int max_loca
 }
 
 void osrmc_config_set_max_locations_distance_table(osrmc_config_t config, int max_locations, osrmc_error_t* error) try {
+  if (!osrmc_validate_config(config, error)) {
+    return;
+  }
   auto* config_typed = reinterpret_cast<osrm::EngineConfig*>(config);
   config_typed->max_locations_distance_table = max_locations;
 } catch (const std::exception& e) {
@@ -471,6 +539,9 @@ void osrmc_config_set_max_locations_distance_table(osrmc_config_t config, int ma
 }
 
 void osrmc_config_set_max_locations_map_matching(osrmc_config_t config, int max_locations, osrmc_error_t* error) try {
+  if (!osrmc_validate_config(config, error)) {
+    return;
+  }
   auto* config_typed = reinterpret_cast<osrm::EngineConfig*>(config);
   config_typed->max_locations_map_matching = max_locations;
 } catch (const std::exception& e) {
@@ -478,6 +549,9 @@ void osrmc_config_set_max_locations_map_matching(osrmc_config_t config, int max_
 }
 
 void osrmc_config_set_max_radius_map_matching(osrmc_config_t config, double max_radius, osrmc_error_t* error) try {
+  if (!osrmc_validate_config(config, error)) {
+    return;
+  }
   auto* config_typed = reinterpret_cast<osrm::EngineConfig*>(config);
   config_typed->max_radius_map_matching = max_radius;
 } catch (const std::exception& e) {
@@ -485,6 +559,9 @@ void osrmc_config_set_max_radius_map_matching(osrmc_config_t config, double max_
 }
 
 void osrmc_config_set_max_results_nearest(osrmc_config_t config, int max_results, osrmc_error_t* error) try {
+  if (!osrmc_validate_config(config, error)) {
+    return;
+  }
   auto* config_typed = reinterpret_cast<osrm::EngineConfig*>(config);
   config_typed->max_results_nearest = max_results;
 } catch (const std::exception& e) {
@@ -492,6 +569,9 @@ void osrmc_config_set_max_results_nearest(osrmc_config_t config, int max_results
 }
 
 void osrmc_config_set_default_radius(osrmc_config_t config, double default_radius, osrmc_error_t* error) try {
+  if (!osrmc_validate_config(config, error)) {
+    return;
+  }
   auto* config_typed = reinterpret_cast<osrm::EngineConfig*>(config);
   config_typed->default_radius = default_radius;
 } catch (const std::exception& e) {
@@ -499,6 +579,9 @@ void osrmc_config_set_default_radius(osrmc_config_t config, double default_radiu
 }
 
 void osrmc_config_set_max_alternatives(osrmc_config_t config, int max_alternatives, osrmc_error_t* error) try {
+  if (!osrmc_validate_config(config, error)) {
+    return;
+  }
   auto* config_typed = reinterpret_cast<osrm::EngineConfig*>(config);
   config_typed->max_alternatives = max_alternatives;
 } catch (const std::exception& e) {
@@ -506,6 +589,9 @@ void osrmc_config_set_max_alternatives(osrmc_config_t config, int max_alternativ
 }
 
 void osrmc_config_set_use_mmap(osrmc_config_t config, bool use_mmap, osrmc_error_t* error) try {
+  if (!osrmc_validate_config(config, error)) {
+    return;
+  }
   auto* config_typed = reinterpret_cast<osrm::EngineConfig*>(config);
   config_typed->use_mmap = use_mmap;
 } catch (const std::exception& e) {
@@ -513,6 +599,9 @@ void osrmc_config_set_use_mmap(osrmc_config_t config, bool use_mmap, osrmc_error
 }
 
 void osrmc_config_set_dataset_name(osrmc_config_t config, const char* dataset_name, osrmc_error_t* error) try {
+  if (!osrmc_validate_config(config, error)) {
+    return;
+  }
   auto* config_typed = reinterpret_cast<osrm::EngineConfig*>(config);
   if (dataset_name) {
     config_typed->dataset_name = std::string(dataset_name);
@@ -524,6 +613,9 @@ void osrmc_config_set_dataset_name(osrmc_config_t config, const char* dataset_na
 }
 
 void osrmc_config_set_use_shared_memory(osrmc_config_t config, bool use_shared_memory, osrmc_error_t* error) try {
+  if (!osrmc_validate_config(config, error)) {
+    return;
+  }
   auto* config_typed = reinterpret_cast<osrm::EngineConfig*>(config);
   config_typed->use_shared_memory = use_shared_memory;
 } catch (const std::exception& e) {
@@ -531,6 +623,9 @@ void osrmc_config_set_use_shared_memory(osrmc_config_t config, bool use_shared_m
 }
 
 void osrmc_config_set_memory_file(osrmc_config_t config, const char* memory_file, osrmc_error_t* error) try {
+  if (!osrmc_validate_config(config, error)) {
+    return;
+  }
   auto* config_typed = reinterpret_cast<osrm::EngineConfig*>(config);
   if (memory_file) {
     config_typed->memory_file = std::filesystem::path(memory_file);
@@ -542,6 +637,9 @@ void osrmc_config_set_memory_file(osrmc_config_t config, const char* memory_file
 }
 
 void osrmc_config_set_verbosity(osrmc_config_t config, const char* verbosity, osrmc_error_t* error) try {
+  if (!osrmc_validate_config(config, error)) {
+    return;
+  }
   auto* config_typed = reinterpret_cast<osrm::EngineConfig*>(config);
   if (verbosity) {
     config_typed->verbosity = std::string(verbosity);
@@ -562,8 +660,13 @@ static void osrmc_refresh_storage_config_for_datasets(osrm::EngineConfig* config
 }
 
 void osrmc_config_disable_feature_dataset(osrmc_config_t config, const char* dataset_name, osrmc_error_t* error) try {
+  if (!osrmc_validate_config(config, error)) {
+    return;
+  }
   if (!dataset_name) {
-    *error = new osrmc_error{"InvalidDataset", "Dataset name must not be null"};
+    if (error) {
+      *error = new osrmc_error{"InvalidDataset", "Dataset name must not be null"};
+    }
     return;
   }
 
@@ -586,6 +689,9 @@ void osrmc_config_disable_feature_dataset(osrmc_config_t config, const char* dat
 }
 
 void osrmc_config_clear_disabled_feature_datasets(osrmc_config_t config, osrmc_error_t* error) try {
+  if (!osrmc_validate_config(config, error)) {
+    return;
+  }
   auto* config_typed = reinterpret_cast<osrm::EngineConfig*>(config);
   config_typed->disable_feature_dataset.clear();
   osrmc_refresh_storage_config_for_datasets(config_typed);
@@ -594,6 +700,12 @@ void osrmc_config_clear_disabled_feature_datasets(osrmc_config_t config, osrmc_e
 }
 
 osrmc_osrm_t osrmc_osrm_construct(osrmc_config_t config, osrmc_error_t* error) try {
+  if (!config) {
+    if (error) {
+      *error = new osrmc_error{"InvalidArgument", "Config must not be null"};
+    }
+    return nullptr;
+  }
   auto* config_typed = reinterpret_cast<osrm::EngineConfig*>(config);
   auto* out = new osrm::OSRM(*config_typed);
 
@@ -603,9 +715,16 @@ osrmc_osrm_t osrmc_osrm_construct(osrmc_config_t config, osrmc_error_t* error) t
   return nullptr;
 }
 
-void osrmc_osrm_destruct(osrmc_osrm_t osrm) { delete reinterpret_cast<osrm::OSRM*>(osrm); }
+void osrmc_osrm_destruct(osrmc_osrm_t osrm) {
+  if (osrm) {
+    delete reinterpret_cast<osrm::OSRM*>(osrm);
+  }
+}
 
 void osrmc_params_add_coordinate(osrmc_params_t params, double longitude, double latitude, osrmc_error_t* error) try {
+  if (!osrmc_validate_params(params, error)) {
+    return;
+  }
   auto* params_typed = reinterpret_cast<osrm::engine::api::BaseParameters*>(params);
 
   auto longitude_typed = osrm::util::FloatLongitude{longitude};
@@ -618,6 +737,9 @@ void osrmc_params_add_coordinate(osrmc_params_t params, double longitude, double
 
 void osrmc_params_add_coordinate_with(osrmc_params_t params, double longitude, double latitude, double radius, int bearing,
                                       int range, osrmc_error_t* error) try {
+  if (!osrmc_validate_params(params, error)) {
+    return;
+  }
   auto* params_typed = reinterpret_cast<osrm::engine::api::BaseParameters*>(params);
 
   auto longitude_typed = osrm::util::FloatLongitude{longitude};
@@ -633,6 +755,9 @@ void osrmc_params_add_coordinate_with(osrmc_params_t params, double longitude, d
 }
 
 void osrmc_params_set_hint(osrmc_params_t params, size_t coordinate_index, const char* hint_base64, osrmc_error_t* error) try {
+  if (!osrmc_validate_params(params, error)) {
+    return;
+  }
   auto* params_typed = reinterpret_cast<osrm::engine::api::BaseParameters*>(params);
   if (!osrmc_validate_coordinate_index(*params_typed, coordinate_index, "Hint", error)) {
     return;
@@ -650,6 +775,9 @@ void osrmc_params_set_hint(osrmc_params_t params, size_t coordinate_index, const
 }
 
 void osrmc_params_set_radius(osrmc_params_t params, size_t coordinate_index, double radius, osrmc_error_t* error) try {
+  if (!osrmc_validate_params(params, error)) {
+    return;
+  }
   auto* params_typed = reinterpret_cast<osrm::engine::api::BaseParameters*>(params);
   if (!osrmc_validate_coordinate_index(*params_typed, coordinate_index, "Radius", error)) {
     return;
@@ -666,6 +794,9 @@ void osrmc_params_set_radius(osrmc_params_t params, size_t coordinate_index, dou
 }
 
 void osrmc_params_set_bearing(osrmc_params_t params, size_t coordinate_index, int value, int range, osrmc_error_t* error) try {
+  if (!osrmc_validate_params(params, error)) {
+    return;
+  }
   auto* params_typed = reinterpret_cast<osrm::engine::api::BaseParameters*>(params);
   if (!osrmc_validate_coordinate_index(*params_typed, coordinate_index, "Bearing", error)) {
     return;
@@ -685,6 +816,9 @@ void osrmc_params_set_bearing(osrmc_params_t params, size_t coordinate_index, in
 
 void osrmc_params_set_approach(osrmc_params_t params, size_t coordinate_index, osrmc_approach_t approach,
                                osrmc_error_t* error) try {
+  if (!osrmc_validate_params(params, error)) {
+    return;
+  }
   auto* params_typed = reinterpret_cast<osrm::engine::api::BaseParameters*>(params);
   if (!osrmc_validate_coordinate_index(*params_typed, coordinate_index, "Approach", error)) {
     return;
@@ -713,8 +847,13 @@ void osrmc_params_set_approach(osrmc_params_t params, size_t coordinate_index, o
 }
 
 void osrmc_params_add_exclude(osrmc_params_t params, const char* exclude_profile, osrmc_error_t* error) try {
+  if (!osrmc_validate_params(params, error)) {
+    return;
+  }
   if (!exclude_profile) {
-    *error = new osrmc_error{"InvalidExclude", "Exclude profile must not be null"};
+    if (error) {
+      *error = new osrmc_error{"InvalidExclude", "Exclude profile must not be null"};
+    }
     return;
   }
 
@@ -725,16 +864,25 @@ void osrmc_params_add_exclude(osrmc_params_t params, const char* exclude_profile
 }
 
 void osrmc_params_set_generate_hints(osrmc_params_t params, int on) {
+  if (!params) {
+    return;
+  }
   auto* params_typed = reinterpret_cast<osrm::engine::api::BaseParameters*>(params);
   params_typed->generate_hints = on != 0;
 }
 
 void osrmc_params_set_skip_waypoints(osrmc_params_t params, int on) {
+  if (!params) {
+    return;
+  }
   auto* params_typed = reinterpret_cast<osrm::engine::api::BaseParameters*>(params);
   params_typed->skip_waypoints = on != 0;
 }
 
 void osrmc_params_set_snapping(osrmc_params_t params, osrmc_snapping_t snapping, osrmc_error_t* error) try {
+  if (!osrmc_validate_params(params, error)) {
+    return;
+  }
   auto* params_typed = reinterpret_cast<osrm::engine::api::BaseParameters*>(params);
   switch (snapping) {
     case OSRMC_SNAPPING_DEFAULT:
@@ -752,18 +900,21 @@ void osrmc_params_set_snapping(osrmc_params_t params, osrmc_snapping_t snapping,
 }
 
 void osrmc_params_set_format(osrmc_params_t params, osrmc_output_format_t format, osrmc_error_t* error) try {
+  if (!osrmc_validate_params(params, error)) {
+    return;
+  }
   auto* params_typed = reinterpret_cast<osrm::engine::api::BaseParameters*>(params);
   // Only JSON format is supported
   if (format != OSRMC_FORMAT_JSON) {
-    *error = new osrmc_error{"InvalidFormat", "Only JSON format is supported"};
+    if (error) {
+      *error = new osrmc_error{"InvalidFormat", "Only JSON format is supported"};
+    }
     return;
   }
   params_typed->format = osrm::engine::api::BaseParameters::OutputFormatType::JSON;
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
 }
-
-// Format checking removed - JSON is always used
 
 static osrm::RouteParameters* osrmc_route_like_params(osrmc_route_params_t params) {
   return reinterpret_cast<osrm::RouteParameters*>(params);
@@ -887,12 +1038,12 @@ static bool osrmc_collect_route_coordinates(const osrm::json::Object& route,
       out.reserve(coordinates.values.size());
       for (const auto& coordinate_value : coordinates.values) {
         const auto& coordinate_pair = std::get<osrm::json::Array>(coordinate_value).values;
-        if (coordinate_pair.size() < 2) {
+        if (coordinate_pair.size() < MIN_COORDINATE_PAIR_SIZE) {
           *error = new osrmc_error{"InvalidGeometry", "Coordinate entry is malformed"};
           return false;
         }
-        const auto lon = std::get<osrm::json::Number>(coordinate_pair[0]).value;
-        const auto lat = std::get<osrm::json::Number>(coordinate_pair[1]).value;
+        const auto lon = std::get<osrm::json::Number>(coordinate_pair[COORDINATE_LONGITUDE_INDEX]).value;
+        const auto lat = std::get<osrm::json::Number>(coordinate_pair[COORDINATE_LATITUDE_INDEX]).value;
         out.push_back(osrmc_coordinate{lon, lat});
       }
       return true;
@@ -934,7 +1085,9 @@ osrmc_route_params_t osrmc_route_params_construct(osrmc_error_t* error) try {
 }
 
 void osrmc_route_params_destruct(osrmc_route_params_t params) {
-  delete reinterpret_cast<osrm::RouteParameters*>(params);
+  if (params) {
+    delete reinterpret_cast<osrm::RouteParameters*>(params);
+  }
 }
 
 void osrmc_route_params_add_steps(osrmc_route_params_t params, int on) {
@@ -986,6 +1139,12 @@ void osrmc_route_params_clear_waypoints(osrmc_route_params_t params) {
 }
 
 osrmc_route_response_t osrmc_route(osrmc_osrm_t osrm, osrmc_route_params_t params, osrmc_error_t* error) try {
+  if (!osrmc_validate_osrm(osrm, error) || !params) {
+    if (error && !*error) {
+      *error = new osrmc_error{"InvalidArgument", "OSRM instance and params must not be null"};
+    }
+    return nullptr;
+  }
   auto* osrm_typed = reinterpret_cast<osrm::OSRM*>(osrm);
   auto* params_typed = reinterpret_cast<osrm::RouteParameters*>(params);
 
@@ -1009,7 +1168,9 @@ osrmc_route_response_t osrmc_route(osrmc_osrm_t osrm, osrmc_route_params_t param
 }
 
 void osrmc_route_response_destruct(osrmc_route_response_t response) {
-  delete osrmc_get_route_response(response);
+  if (response) {
+    delete osrmc_get_route_response(response);
+  }
 }
 
 double osrmc_route_response_distance(osrmc_route_response_t response, osrmc_error_t* error) try {
@@ -1200,7 +1361,7 @@ double osrmc_route_response_waypoint_latitude(osrmc_route_response_t response, u
 
   const auto& waypoint = std::get<osrm::json::Object>(waypoints.values.at(index));
   const auto& location = std::get<osrm::json::Array>(waypoint.values.at("location")).values;
-  const auto latitude = std::get<osrm::json::Number>(location[1]).value;
+  const auto latitude = std::get<osrm::json::Number>(location[COORDINATE_LATITUDE_INDEX]).value;
 
   return latitude;
 } catch (const std::exception& e) {
@@ -1220,7 +1381,7 @@ double osrmc_route_response_waypoint_longitude(osrmc_route_response_t response, 
 
   const auto& waypoint = std::get<osrm::json::Object>(waypoints.values.at(index));
   const auto& location = std::get<osrm::json::Array>(waypoint.values.at("location")).values;
-  const auto longitude = std::get<osrm::json::Number>(location[0]).value;
+  const auto longitude = std::get<osrm::json::Number>(location[COORDINATE_LONGITUDE_INDEX]).value;
 
   return longitude;
 } catch (const std::exception& e) {
@@ -1425,7 +1586,9 @@ osrmc_table_params_t osrmc_table_params_construct(osrmc_error_t* error) try {
 }
 
 void osrmc_table_params_destruct(osrmc_table_params_t params) {
-  delete reinterpret_cast<osrm::TableParameters*>(params);
+  if (params) {
+    delete reinterpret_cast<osrm::TableParameters*>(params);
+  }
 }
 
 void osrmc_table_params_add_source(osrmc_table_params_t params, size_t index, osrmc_error_t* error) try {
@@ -1499,6 +1662,12 @@ void osrmc_table_params_set_scale_factor(osrmc_table_params_t params, double sca
 }
 
 osrmc_table_response_t osrmc_table(osrmc_osrm_t osrm, osrmc_table_params_t params, osrmc_error_t* error) try {
+  if (!osrmc_validate_osrm(osrm, error) || !params) {
+    if (error && !*error) {
+      *error = new osrmc_error{"InvalidArgument", "OSRM instance and params must not be null"};
+    }
+    return nullptr;
+  }
   auto* osrm_typed = reinterpret_cast<osrm::OSRM*>(osrm);
   auto* params_typed = reinterpret_cast<osrm::TableParameters*>(params);
 
@@ -1512,6 +1681,7 @@ osrmc_table_response_t osrmc_table(osrmc_osrm_t osrm, osrmc_table_params_t param
     return reinterpret_cast<osrmc_table_response_t>(out);
 
   osrmc_error_from_json(*out, error);
+  delete out;
   return nullptr;
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
@@ -1519,7 +1689,9 @@ osrmc_table_response_t osrmc_table(osrmc_osrm_t osrm, osrmc_table_params_t param
 }
 
 void osrmc_table_response_destruct(osrmc_table_response_t response) {
-  delete reinterpret_cast<osrm::json::Object*>(response);
+  if (response) {
+    delete reinterpret_cast<osrm::json::Object*>(response);
+  }
 }
 
 double osrmc_table_response_duration(osrmc_table_response_t response, unsigned long from, unsigned long to,
@@ -1728,7 +1900,9 @@ osrmc_nearest_params_t osrmc_nearest_params_construct(osrmc_error_t* error) try 
 }
 
 void osrmc_nearest_params_destruct(osrmc_nearest_params_t params) {
-  delete reinterpret_cast<osrm::NearestParameters*>(params);
+  if (params) {
+    delete reinterpret_cast<osrm::NearestParameters*>(params);
+  }
 }
 
 osrmc_match_params_t osrmc_match_params_construct(osrmc_error_t* error) try {
@@ -1740,7 +1914,9 @@ osrmc_match_params_t osrmc_match_params_construct(osrmc_error_t* error) try {
 }
 
 void osrmc_match_params_destruct(osrmc_match_params_t params) {
-  delete reinterpret_cast<osrm::MatchParameters*>(params);
+  if (params) {
+    delete reinterpret_cast<osrm::MatchParameters*>(params);
+  }
 }
 
 void osrmc_match_params_add_steps(osrmc_match_params_t params, int on) {
@@ -1799,6 +1975,12 @@ void osrmc_nearest_set_number_of_results(osrmc_nearest_params_t params, unsigned
 }
 
 osrmc_nearest_response_t osrmc_nearest(osrmc_osrm_t osrm, osrmc_nearest_params_t params, osrmc_error_t* error) try {
+  if (!osrmc_validate_osrm(osrm, error) || !params) {
+    if (error && !*error) {
+      *error = new osrmc_error{"InvalidArgument", "OSRM instance and params must not be null"};
+    }
+    return nullptr;
+  }
   auto* osrm_typed = reinterpret_cast<osrm::OSRM*>(osrm);
   auto* params_typed = reinterpret_cast<osrm::NearestParameters*>(params);
 
@@ -1812,6 +1994,7 @@ osrmc_nearest_response_t osrmc_nearest(osrmc_osrm_t osrm, osrmc_nearest_params_t
     return reinterpret_cast<osrmc_nearest_response_t>(out);
 
   osrmc_error_from_json(*out, error);
+  delete out;
   return nullptr;
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
@@ -1819,7 +2002,9 @@ osrmc_nearest_response_t osrmc_nearest(osrmc_osrm_t osrm, osrmc_nearest_params_t
 }
 
 void osrmc_nearest_response_destruct(osrmc_nearest_response_t response) {
-  delete reinterpret_cast<osrm::json::Object*>(response);
+  if (response) {
+    delete reinterpret_cast<osrm::json::Object*>(response);
+  }
 }
 
 unsigned osrmc_nearest_response_count(osrmc_nearest_response_t response, osrmc_error_t* error) try {
@@ -1847,7 +2032,7 @@ double osrmc_nearest_response_latitude(osrmc_nearest_response_t response, unsign
 
   const auto& waypoint = std::get<osrm::json::Object>(waypoints.values.at(index));
   const auto& location = std::get<osrm::json::Array>(waypoint.values.at("location")).values;
-  const auto latitude = std::get<osrm::json::Number>(location[1]).value;
+  const auto latitude = std::get<osrm::json::Number>(location[COORDINATE_LATITUDE_INDEX]).value;
 
   return latitude;
 } catch (const std::exception& e) {
@@ -1866,7 +2051,7 @@ double osrmc_nearest_response_longitude(osrmc_nearest_response_t response, unsig
 
   const auto& waypoint = std::get<osrm::json::Object>(waypoints.values.at(index));
   const auto& location = std::get<osrm::json::Array>(waypoint.values.at("location")).values;
-  const auto longitude = std::get<osrm::json::Number>(location[0]).value;
+  const auto longitude = std::get<osrm::json::Number>(location[COORDINATE_LONGITUDE_INDEX]).value;
 
   return longitude;
 } catch (const std::exception& e) {
@@ -1976,6 +2161,12 @@ void osrmc_match_params_set_tidy(osrmc_match_params_t params, int on, osrmc_erro
 }
 
 osrmc_match_response_t osrmc_match(osrmc_osrm_t osrm, osrmc_match_params_t params, osrmc_error_t* error) try {
+  if (!osrmc_validate_osrm(osrm, error) || !params) {
+    if (error && !*error) {
+      *error = new osrmc_error{"InvalidArgument", "OSRM instance and params must not be null"};
+    }
+    return nullptr;
+  }
   auto* osrm_typed = reinterpret_cast<osrm::OSRM*>(osrm);
   auto* params_typed = reinterpret_cast<osrm::MatchParameters*>(params);
 
@@ -1989,6 +2180,7 @@ osrmc_match_response_t osrmc_match(osrmc_osrm_t osrm, osrmc_match_params_t param
     return reinterpret_cast<osrmc_match_response_t>(out);
 
   osrmc_error_from_json(*out, error);
+  delete out;
   return nullptr;
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
@@ -1996,7 +2188,9 @@ osrmc_match_response_t osrmc_match(osrmc_osrm_t osrm, osrmc_match_params_t param
 }
 
 void osrmc_match_response_destruct(osrmc_match_response_t response) {
-  delete reinterpret_cast<osrm::json::Object*>(response);
+  if (response) {
+    delete reinterpret_cast<osrm::json::Object*>(response);
+  }
 }
 
 unsigned osrmc_match_response_route_count(osrmc_match_response_t response, osrmc_error_t* error) try {
@@ -2103,7 +2297,7 @@ double osrmc_match_response_tracepoint_latitude(osrmc_match_response_t response,
 
   const auto& tracepoint = std::get<osrm::json::Object>(tracepoint_value);
   const auto& location = std::get<osrm::json::Array>(tracepoint.values.at("location")).values;
-  const auto latitude = std::get<osrm::json::Number>(location[1]).value;
+  const auto latitude = std::get<osrm::json::Number>(location[COORDINATE_LATITUDE_INDEX]).value;
 
   return latitude;
 } catch (const std::exception& e) {
@@ -2128,7 +2322,7 @@ double osrmc_match_response_tracepoint_longitude(osrmc_match_response_t response
 
   const auto& tracepoint = std::get<osrm::json::Object>(tracepoint_value);
   const auto& location = std::get<osrm::json::Array>(tracepoint.values.at("location")).values;
-  const auto longitude = std::get<osrm::json::Number>(location[0]).value;
+  const auto longitude = std::get<osrm::json::Number>(location[COORDINATE_LONGITUDE_INDEX]).value;
 
   return longitude;
 } catch (const std::exception& e) {
@@ -2169,7 +2363,9 @@ osrmc_trip_params_t osrmc_trip_params_construct(osrmc_error_t* error) try {
 }
 
 void osrmc_trip_params_destruct(osrmc_trip_params_t params) {
-  delete reinterpret_cast<osrm::TripParameters*>(params);
+  if (params) {
+    delete reinterpret_cast<osrm::TripParameters*>(params);
+  }
 }
 
 void osrmc_trip_params_add_roundtrip(osrmc_trip_params_t params, int on, osrmc_error_t* error) try {
@@ -2272,6 +2468,12 @@ void osrmc_trip_params_add_waypoint(osrmc_trip_params_t params, size_t index, os
 }
 
 osrmc_trip_response_t osrmc_trip(osrmc_osrm_t osrm, osrmc_trip_params_t params, osrmc_error_t* error) try {
+  if (!osrmc_validate_osrm(osrm, error) || !params) {
+    if (error && !*error) {
+      *error = new osrmc_error{"InvalidArgument", "OSRM instance and params must not be null"};
+    }
+    return nullptr;
+  }
   auto* osrm_typed = reinterpret_cast<osrm::OSRM*>(osrm);
   auto* params_typed = reinterpret_cast<osrm::TripParameters*>(params);
 
@@ -2285,6 +2487,7 @@ osrmc_trip_response_t osrmc_trip(osrmc_osrm_t osrm, osrmc_trip_params_t params, 
     return reinterpret_cast<osrmc_trip_response_t>(out);
 
   osrmc_error_from_json(*out, error);
+  delete out;
   return nullptr;
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
@@ -2292,7 +2495,9 @@ osrmc_trip_response_t osrmc_trip(osrmc_osrm_t osrm, osrmc_trip_params_t params, 
 }
 
 void osrmc_trip_response_destruct(osrmc_trip_response_t response) {
-  delete reinterpret_cast<osrm::json::Object*>(response);
+  if (response) {
+    delete reinterpret_cast<osrm::json::Object*>(response);
+  }
 }
 
 double osrmc_trip_response_distance(osrmc_trip_response_t response, osrmc_error_t* error) try {
@@ -2346,7 +2551,7 @@ double osrmc_trip_response_waypoint_latitude(osrmc_trip_response_t response, uns
 
   const auto& waypoint = std::get<osrm::json::Object>(waypoints.values.at(index));
   const auto& location = std::get<osrm::json::Array>(waypoint.values.at("location")).values;
-  const auto latitude = std::get<osrm::json::Number>(location[1]).value;
+  const auto latitude = std::get<osrm::json::Number>(location[COORDINATE_LATITUDE_INDEX]).value;
 
   return latitude;
 } catch (const std::exception& e) {
@@ -2365,7 +2570,7 @@ double osrmc_trip_response_waypoint_longitude(osrmc_trip_response_t response, un
 
   const auto& waypoint = std::get<osrm::json::Object>(waypoints.values.at(index));
   const auto& location = std::get<osrm::json::Array>(waypoint.values.at("location")).values;
-  const auto longitude = std::get<osrm::json::Number>(location[0]).value;
+  const auto longitude = std::get<osrm::json::Number>(location[COORDINATE_LONGITUDE_INDEX]).value;
 
   return longitude;
 } catch (const std::exception& e) {
@@ -2393,7 +2598,9 @@ osrmc_tile_params_t osrmc_tile_params_construct(osrmc_error_t* error) try {
 }
 
 void osrmc_tile_params_destruct(osrmc_tile_params_t params) {
-  delete reinterpret_cast<osrm::TileParameters*>(params);
+  if (params) {
+    delete reinterpret_cast<osrm::TileParameters*>(params);
+  }
 }
 
 void osrmc_tile_params_set_x(osrmc_tile_params_t params, unsigned x, osrmc_error_t* error) try {
@@ -2418,6 +2625,12 @@ void osrmc_tile_params_set_z(osrmc_tile_params_t params, unsigned z, osrmc_error
 }
 
 osrmc_tile_response_t osrmc_tile(osrmc_osrm_t osrm, osrmc_tile_params_t params, osrmc_error_t* error) try {
+  if (!osrmc_validate_osrm(osrm, error) || !params) {
+    if (error && !*error) {
+      *error = new osrmc_error{"InvalidArgument", "OSRM instance and params must not be null"};
+    }
+    return nullptr;
+  }
   auto* osrm_typed = reinterpret_cast<osrm::OSRM*>(osrm);
   auto* params_typed = reinterpret_cast<osrm::TileParameters*>(params);
 
@@ -2443,7 +2656,9 @@ osrmc_tile_response_t osrmc_tile(osrmc_osrm_t osrm, osrmc_tile_params_t params, 
 }
 
 void osrmc_tile_response_destruct(osrmc_tile_response_t response) {
-  delete reinterpret_cast<std::string*>(response);
+  if (response) {
+    delete reinterpret_cast<std::string*>(response);
+  }
 }
 
 const char* osrmc_tile_response_data(osrmc_tile_response_t response, size_t* size, osrmc_error_t* error) try {
