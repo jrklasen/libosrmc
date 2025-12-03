@@ -1016,7 +1016,6 @@ static osrmc_route_response* osrmc_get_route_response(osrmc_route_response_t res
 }
 
 static bool osrmc_collect_route_coordinates(const osrm::json::Object& route,
-                                            osrm::RouteParameters::GeometriesType geometry_type,
                                             std::vector<osrmc_coordinate>& out,
                                             osrmc_error_t* error) {
   const auto geometry_iter = route.values.find("geometry");
@@ -1068,7 +1067,7 @@ static bool osrmc_ensure_route_geometry_cache(osrmc_route_response* response,
     return true;
   }
 
-  if (!osrmc_collect_route_coordinates(route, response->geometries, response->geometry_cache[route_index], error)) {
+  if (!osrmc_collect_route_coordinates(route, response->geometry_cache[route_index], error)) {
     return false;
   }
   response->geometry_cache_ready[route_index] = true;
@@ -1253,8 +1252,29 @@ double osrmc_route_response_duration_at(osrmc_route_response_t response, unsigne
 }
 
 const char* osrmc_route_response_geometry_polyline(osrmc_route_response_t response, unsigned route_index, osrmc_error_t* error) try {
-  // Polyline format is no longer supported - only GeoJSON is available
-  *error = new osrmc_error{"UnsupportedFormat", "Polyline format is not supported. Only GeoJSON geometry format is available."};
+  auto* response_holder = osrmc_get_route_response(response);
+  auto& response_json = response_holder->json;
+  auto& routes = std::get<osrm::json::Array>(response_json.values["routes"]);
+  if (route_index >= routes.values.size()) {
+    *error = new osrmc_error{"IndexOutOfBounds", "Route index out of bounds"};
+    return nullptr;
+  }
+
+  auto& route = std::get<osrm::json::Object>(routes.values.at(route_index));
+  const auto geometry_iter = route.values.find("geometry");
+  if (geometry_iter == route.values.end()) {
+    *error = new osrmc_error{"NoGeometry", "Geometry not available for this route"};
+    return nullptr;
+  }
+
+  const auto& geometry = geometry_iter->second;
+  // When geometries=polyline or geometries=polyline6, geometry is a string directly
+  if (std::holds_alternative<osrm::json::String>(geometry)) {
+    const auto& polyline = std::get<osrm::json::String>(geometry).value;
+    return polyline.c_str();
+  }
+
+  *error = new osrmc_error{"NoPolyline", "Geometry not available for this route"};
   return nullptr;
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
