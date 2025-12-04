@@ -51,9 +51,7 @@ else ifeq ($(TARGET),apple)
     # macOS needs install_name for library versioning; RPATH for non-standard installs
     LDFLAGS_SHARED = -dynamiclib -install_name $(PREFIX)/lib/libosrmc.$(VERSION_MAJOR)$(SHARED_EXT)
     LDFLAGS_RPATH = -Wl,-rpath,$(PREFIX)/lib
-    STDCPP_LIB = -lc++
-    CXXFLAGS_STDLIB = -stdlib=libc++
-    LDFLAGS_STDLIB = -stdlib=libc++
+    STDCPP_LIB = -lstdc++
 else
     SHARED_EXT = .so
     IMPLIB_EXT =
@@ -72,12 +70,7 @@ CXX_WARNING_FLAGS = -Wall -Wextra -pedantic
 CXX_STANDARD = -std=c++20
 CXX_VISIBILITY_FLAG = -fvisibility=hidden
 CXX_POSITION_INDEPENDENT = -fPIC
-# macOS needs RTTI for std::bad_variant_access exceptions
-ifeq ($(TARGET),apple)
-    CXX_NO_RTTI =
-else
-    CXX_NO_RTTI = -fno-rtti
-endif
+CXX_NO_RTTI = -fno-rtti
 
 CXXFLAGS_BASE = $(CXX_OPTIMIZATION_LEVEL) $(CXX_WARNING_FLAGS) $(CXX_STANDARD) $(CXX_VISIBILITY_FLAG) $(CXX_POSITION_INDEPENDENT) $(CXX_NO_RTTI)
 
@@ -113,11 +106,7 @@ ifneq ($(EXTRA_CXXFLAGS),)
     CXXFLAGS += $(EXTRA_CXXFLAGS)
 endif
 
-# LDFLAGS order: shared lib flags -> RPATH -> stdlib flags -> library search paths -> libraries -> stdlib libs
-ifeq ($(TARGET),apple)
-    LDFLAGS = $(LDFLAGS_SHARED) $(LDFLAGS_RPATH) $(LDFLAGS_STDLIB) -L$(OSRM_LIBDIR) $(OSRM_LDFLAGS) $(STDCPP_LIB)
-else
-    LDFLAGS = $(LDFLAGS_SHARED) $(LDFLAGS_RPATH) -L$(OSRM_LIBDIR) $(OSRM_LDFLAGS) $(STDCPP_LIB)
-endif
+# LDFLAGS order: shared lib flags -> RPATH -> library search paths -> libraries -> stdlib libs
+LDFLAGS = $(LDFLAGS_SHARED) $(LDFLAGS_RPATH) -L$(OSRM_LIBDIR) $(OSRM_LDFLAGS) $(STDCPP_LIB)
 
 export PKG_CONFIG_PATH
