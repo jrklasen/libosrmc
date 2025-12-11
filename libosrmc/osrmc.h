@@ -16,9 +16,10 @@
  * 2. Construct OSRM: osrmc_osrm_construct(config, &error)
  * 3. Create params: osrmc_service_params_construct(&error)
  * 4. Add coordinates: osrmc_params_add_coordinate(params, lon, lat, &error)
- * 5. Query service: osrmc_service(osrm, params, &error)
- * 6. Get JSON blob: osrmc_service_response_json(response, &error)
- * 7. Cleanup: osrmc_blob_destruct(blob), osrmc_service_response_destruct(response)
+ * 5. Set format (optional, default JSON): osrmc_params_set_format(params, FORMAT_JSON/FORMAT_FLATBUFFERS, &error)
+ * 6. Query service: osrmc_service(osrm, params, &error)
+ * 7. Get response: osrmc_service_response_json() or osrmc_service_response_flatbuffer()
+ * 8. Cleanup: osrmc_blob_destruct(blob), osrmc_service_response_destruct(response)
  *
  * Example:
  *
@@ -27,8 +28,10 @@
  *   osrmc_osrm_t osrm = osrmc_osrm_construct(config, &error);
  *   osrmc_route_params_t params = osrmc_route_params_construct(&error);
  *   osrmc_params_add_coordinate((osrmc_params_t)params, lon, lat, &error);
+ *   osrmc_params_set_format((osrmc_params_t)params, FORMAT_JSON, &error);  // or FORMAT_FLATBUFFERS
  *   osrmc_route_response_t response = osrmc_route(osrm, params, &error);
  *   if (!error && response) {
+ *     // For JSON format:
  *     osrmc_blob_t json_blob = osrmc_route_response_json(response, &error);
  *     if (json_blob) {
  *       const char* json_data = osrmc_blob_data(json_blob);
@@ -36,6 +39,9 @@
  *       // Use json_data (valid until osrmc_blob_destruct)
  *       osrmc_blob_destruct(json_blob);
  *     }
+ *     // For FlatBuffers format:
+ *     // osrmc_blob_t fb_blob = osrmc_route_response_flatbuffer(response, &error);
+ *     // if (fb_blob) { ... osrmc_blob_destruct(fb_blob); }
  *     osrmc_route_response_destruct(response);
  *   }
  *   if (error) {
@@ -48,9 +54,10 @@
  * Get message via osrmc_error_message(), destruct via osrmc_error_destruct().
  *
  * Response Data:
- * JSON services return osrmc_blob_t via *_response_json(). Access data via
- * osrmc_blob_data() and size via osrmc_blob_size(). Tile service uses
- * osrmc_tile_response_data() and osrmc_tile_response_size() for binary data.
+ * Services support JSON and FlatBuffers formats. Set format via osrmc_params_set_format().
+ * Get JSON via *_response_json() or FlatBuffers via *_response_flatbuffer().
+ * Both return osrmc_blob_t. Access data via osrmc_blob_data() and size via osrmc_blob_size().
+ * Tile service uses osrmc_tile_response_data() and osrmc_tile_response_size() for binary data.
  *
  */
 
@@ -114,8 +121,9 @@ typedef struct osrmc_tile_response* osrmc_tile_response_t;
 /* Enums */
 
 /* Output formats */
-/* NOTE: Flatbuffers format is not supported */
-typedef enum { FORMAT_JSON = 0 } output_format_t;
+/* FORMAT_JSON: Returns JSON response via *_response_json() */
+/* FORMAT_FLATBUFFERS: Returns FlatBuffers binary data via *_response_flatbuffer() */
+typedef enum { FORMAT_JSON = 0, FORMAT_FLATBUFFERS = 1 } output_format_t;
 
 /* Algorithms */
 typedef enum { ALGORITHM_CH = 0, ALGORITHM_MLD = 1 } algorithm_t;
@@ -279,6 +287,8 @@ osrmc_nearest_response_destruct(osrmc_nearest_response_t response);
 /* Nearest response getters*/
 OSRMC_API osrmc_blob_t
 osrmc_nearest_response_json(osrmc_nearest_response_t response, osrmc_error_t* error);
+OSRMC_API osrmc_blob_t
+osrmc_nearest_response_flatbuffer(osrmc_nearest_response_t response, osrmc_error_t* error);
 
 /* Route */
 
@@ -316,6 +326,8 @@ osrmc_route_response_destruct(osrmc_route_response_t response);
 /* Route response getters*/
 OSRMC_API osrmc_blob_t
 osrmc_route_response_json(osrmc_route_response_t response, osrmc_error_t* error);
+OSRMC_API osrmc_blob_t
+osrmc_route_response_flatbuffer(osrmc_route_response_t response, osrmc_error_t* error);
 
 /* Table */
 
@@ -349,6 +361,8 @@ osrmc_table_response_destruct(osrmc_table_response_t response);
 /* Table response getters*/
 OSRMC_API osrmc_blob_t
 osrmc_table_response_json(osrmc_table_response_t response, osrmc_error_t* error);
+OSRMC_API osrmc_blob_t
+osrmc_table_response_flatbuffer(osrmc_table_response_t response, osrmc_error_t* error);
 
 /* Match */
 
@@ -392,6 +406,8 @@ osrmc_match_response_destruct(osrmc_match_response_t response);
 /* Match response getters*/
 OSRMC_API osrmc_blob_t
 osrmc_match_response_json(osrmc_match_response_t response, osrmc_error_t* error);
+OSRMC_API osrmc_blob_t
+osrmc_match_response_flatbuffer(osrmc_match_response_t response, osrmc_error_t* error);
 
 /* Trip */
 
@@ -437,6 +453,8 @@ osrmc_trip_response_destruct(osrmc_trip_response_t response);
 /* Trip response getters*/
 OSRMC_API osrmc_blob_t
 osrmc_trip_response_json(osrmc_trip_response_t response, osrmc_error_t* error);
+OSRMC_API osrmc_blob_t
+osrmc_trip_response_flatbuffer(osrmc_trip_response_t response, osrmc_error_t* error);
 
 /* Tile */
 
