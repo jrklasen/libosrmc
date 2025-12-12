@@ -81,30 +81,14 @@ namespace osrmc_json {
 
       // Handle special characters that need escaping
       switch (ch) {
-        case '"':
-          out += "\\\"";
-          break;
-        case '\\':
-          out += "\\\\";
-          break;
-        case '\b':
-          out += "\\b";
-          break;
-        case '\f':
-          out += "\\f";
-          break;
-        case '\n':
-          out += "\\n";
-          break;
-        case '\r':
-          out += "\\r";
-          break;
-        case '\t':
-          out += "\\t";
-          break;
-        default:
-          out.push_back(static_cast<char>(ch));
-          break;
+        case '"':  out += "\\\""; break;
+        case '\\': out += "\\\\"; break;
+        case '\b': out += "\\b"; break;
+        case '\f': out += "\\f"; break;
+        case '\n': out += "\\n"; break;
+        case '\r': out += "\\r"; break;
+        case '\t': out += "\\t"; break;
+        default:   out.push_back(static_cast<char>(ch)); break;
       }
     }
   }
@@ -465,9 +449,7 @@ osrmc_config_disable_feature_dataset(osrmc_config_t config, const char* dataset_
   auto* config_typed = reinterpret_cast<osrm::EngineConfig*>(config);
   // Convert to lowercase and check dataset name
   std::string lower_name = dataset_name;
-  std::transform(lower_name.begin(), lower_name.end(), lower_name.begin(), [](unsigned char ch) {
-    return static_cast<char>(std::tolower(ch));
-  });
+  std::transform(lower_name.begin(), lower_name.end(), lower_name.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
   std::optional<osrm::storage::FeatureDataset> dataset;
   if (lower_name == "route_steps") {
     dataset = osrm::storage::FeatureDataset::ROUTE_STEPS;
@@ -1028,7 +1010,7 @@ osrmc_route_params_set_number_of_alternatives(osrmc_route_params_t params, unsig
 
 void
 osrmc_route_params_set_annotations(osrmc_route_params_t params,
-                                   route_annotations_type_t annotations,
+                                   annotations_type_t annotations,
                                    osrmc_error_t* error) try {
   if (!params) {
     osrmc_set_error(error, "InvalidArgument", "Params must not be null");
@@ -1036,7 +1018,7 @@ osrmc_route_params_set_annotations(osrmc_route_params_t params,
   }
   auto* params_typed = reinterpret_cast<osrm::RouteParameters*>(params);
   params_typed->annotations_type = static_cast<osrm::RouteParameters::AnnotationsType>(annotations);
-  params_typed->annotations = (annotations != ROUTE_ANNOTATIONS_NONE);
+  params_typed->annotations = (annotations != ANNOTATIONS_NONE);
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
 }
@@ -1452,7 +1434,7 @@ osrmc_match_params_set_number_of_alternatives(osrmc_match_params_t params, unsig
 
 void
 osrmc_match_params_set_annotations(osrmc_match_params_t params,
-                                   route_annotations_type_t annotations,
+                                   annotations_type_t annotations,
                                    osrmc_error_t* error) try {
   if (!params) {
     osrmc_set_error(error, "InvalidArgument", "Params must not be null");
@@ -1460,7 +1442,7 @@ osrmc_match_params_set_annotations(osrmc_match_params_t params,
   }
   auto* params_typed = reinterpret_cast<osrm::MatchParameters*>(params);
   params_typed->annotations_type = static_cast<osrm::RouteParameters::AnnotationsType>(annotations);
-  params_typed->annotations = (annotations != ROUTE_ANNOTATIONS_NONE);
+  params_typed->annotations = (annotations != ANNOTATIONS_NONE);
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
 }
@@ -1752,7 +1734,7 @@ osrmc_trip_params_set_number_of_alternatives(osrmc_trip_params_t params, unsigne
 
 void
 osrmc_trip_params_set_annotations(osrmc_trip_params_t params,
-                                  route_annotations_type_t annotations,
+                                  annotations_type_t annotations,
                                   osrmc_error_t* error) try {
   if (!params) {
     osrmc_set_error(error, "InvalidArgument", "Params must not be null");
@@ -1760,7 +1742,7 @@ osrmc_trip_params_set_annotations(osrmc_trip_params_t params,
   }
   auto* params_typed = reinterpret_cast<osrm::TripParameters*>(params);
   params_typed->annotations_type = static_cast<osrm::RouteParameters::AnnotationsType>(annotations);
-  params_typed->annotations = (annotations != ROUTE_ANNOTATIONS_NONE);
+  params_typed->annotations = (annotations != ANNOTATIONS_NONE);
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
 }

@@ -142,15 +142,15 @@ typedef enum { OVERVIEW_SIMPLIFIED = 0, OVERVIEW_FULL = 1, OVERVIEW_FALSE = 2 } 
 
 /* Annotations */
 typedef enum {
-  ROUTE_ANNOTATIONS_NONE = 0,
-  ROUTE_ANNOTATIONS_DURATION = 1,
-  ROUTE_ANNOTATIONS_NODES = 2,
-  ROUTE_ANNOTATIONS_DISTANCE = 4,
-  ROUTE_ANNOTATIONS_WEIGHT = 8,
-  ROUTE_ANNOTATIONS_DATASOURCES = 16,
-  ROUTE_ANNOTATIONS_SPEED = 32,
-  ROUTE_ANNOTATIONS_ALL = 63
-} route_annotations_type_t;
+  ANNOTATIONS_NONE = 0,
+  ANNOTATIONS_DURATION = 1,
+  ANNOTATIONS_NODES = 2,
+  ANNOTATIONS_DISTANCE = 4,
+  ANNOTATIONS_WEIGHT = 8,
+  ANNOTATIONS_DATASOURCES = 16,
+  ANNOTATIONS_SPEED = 32,
+  ANNOTATIONS_ALL = 63
+} annotations_type_t;
 
 /* Table annotations */
 typedef enum {
@@ -317,7 +317,7 @@ OSRMC_API void
 osrmc_route_params_set_number_of_alternatives(osrmc_route_params_t params, unsigned count, osrmc_error_t* error);
 OSRMC_API void
 osrmc_route_params_set_annotations(osrmc_route_params_t params,
-                                   route_annotations_type_t annotations,
+                                   annotations_type_t annotations,
                                    osrmc_error_t* error);
 OSRMC_API void
 osrmc_route_params_add_waypoint(osrmc_route_params_t params, size_t index, osrmc_error_t* error);
@@ -397,7 +397,7 @@ OSRMC_API void
 osrmc_match_params_set_number_of_alternatives(osrmc_match_params_t params, unsigned count, osrmc_error_t* error);
 OSRMC_API void
 osrmc_match_params_set_annotations(osrmc_match_params_t params,
-                                   route_annotations_type_t annotations,
+                                   annotations_type_t annotations,
                                    osrmc_error_t* error);
 OSRMC_API void
 osrmc_match_params_add_waypoint(osrmc_match_params_t params, size_t index, osrmc_error_t* error);
@@ -453,7 +453,7 @@ OSRMC_API void
 osrmc_trip_params_set_number_of_alternatives(osrmc_trip_params_t params, unsigned count, osrmc_error_t* error);
 OSRMC_API void
 osrmc_trip_params_set_annotations(osrmc_trip_params_t params,
-                                  route_annotations_type_t annotations,
+                                  annotations_type_t annotations,
                                   osrmc_error_t* error);
 OSRMC_API void
 osrmc_trip_params_clear_waypoints(osrmc_trip_params_t params);
