@@ -89,6 +89,12 @@ osrmc_error_destruct(osrmc_error_t error) {
   }
 }
 
+// Static deleter function for ABI compatibility (replaces lambda)
+static void
+osrmc_free_deleter(void* ptr) {
+  std::free(ptr);
+}
+
 // Transfer helper for FlatBuffer responses
 static void
 osrmc_transfer_flatbuffer_helper(osrmc_response* resp,
@@ -115,15 +121,16 @@ osrmc_transfer_flatbuffer_helper(osrmc_response* resp,
   if (buffer_offset == 0) {
     // Zero-copy case: data starts at the beginning of the buffer
     // Set deleter to free the raw buffer
-    *deleter = [](void* ptr) { std::free(ptr); };
+    *deleter = osrmc_free_deleter;
 
     // Transfer ownership directly
     *data = data_ptr;  // Same as raw_buffer_ptr when offset is 0
     *size = buffer_size;
   } else {
     // Offset case: we need to copy just the data portion
-    // This is still more efficient than copying the entire buffer
-    uint8_t* copied_data = static_cast<uint8_t*>(std::malloc(buffer_size));
+    // Calculate actual data size (buffer_size includes offset, data size is buffer_size - buffer_offset)
+    size_t data_size = buffer_size - buffer_offset;
+    uint8_t* copied_data = static_cast<uint8_t*>(std::malloc(data_size));
     if (!copied_data) {
       std::free(raw_buffer_ptr);
       osrmc_set_error(error, "MemoryError", "Failed to allocate memory for FlatBuffer data");
@@ -132,15 +139,15 @@ osrmc_transfer_flatbuffer_helper(osrmc_response* resp,
       if (deleter) *deleter = nullptr;
       return;
     }
-    std::memcpy(copied_data, data_ptr, buffer_size);
+    std::memcpy(copied_data, data_ptr, data_size);
     std::free(raw_buffer_ptr);
 
     // Set deleter to free the copied data
-    *deleter = [](void* ptr) { std::free(ptr); };
+    *deleter = osrmc_free_deleter;
 
     // Transfer ownership of copied data
     *data = copied_data;
-    *size = buffer_size;
+    *size = data_size;
   }
 
   // Clear result
