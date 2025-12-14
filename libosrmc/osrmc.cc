@@ -1754,6 +1754,19 @@ osrmc_tile_response_destruct(osrmc_tile_response_t response) {
   }
 }
 
+size_t
+osrmc_tile_response_size(osrmc_tile_response_t response, osrmc_error_t* error) try {
+  if (!response) {
+    osrmc_set_error(error, "InvalidArgument", "Response must not be null");
+    return 0;
+  }
+  auto* response_typed = reinterpret_cast<std::string*>(response);
+  return response_typed->size();
+} catch (const std::exception& e) {
+  osrmc_error_from_exception(e, error);
+  return 0;
+}
+
 const char*
 osrmc_tile_response_data(osrmc_tile_response_t response, size_t* size, osrmc_error_t* error) try {
   if (!response) {
@@ -1776,17 +1789,4 @@ osrmc_tile_response_data(osrmc_tile_response_t response, size_t* size, osrmc_err
     *size = 0;
   }
   return nullptr;
-}
-
-size_t
-osrmc_tile_response_size(osrmc_tile_response_t response, osrmc_error_t* error) try {
-  if (!response) {
-    osrmc_set_error(error, "InvalidArgument", "Response must not be null");
-    return 0;
-  }
-  auto* response_typed = reinterpret_cast<std::string*>(response);
-  return response_typed->size();
-} catch (const std::exception& e) {
-  osrmc_error_from_exception(e, error);
-  return 0;
 }
