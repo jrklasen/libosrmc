@@ -1,8 +1,8 @@
 # libosrmc
 
-A C interface for the OSRM routing engine. Provides a simple, full-featured API to access OSRM's route planning in road networks. The API makes all config and parameter setters of `libosrm` available, except the output format which is restricted to FlatBuffers only.
+A C interface for the OSRM routing engine. Provides a simple, full-featured API to access OSRM, which is tool for route planning in road networks. The API makes setter and gettter functions forall configuration and parameter setters of `libosrm` available, except for the output, which is restricted to FlatBuffers only.
 
-Originally forked from Daniel Hofmann's `libosrmc`, this version has been substantially refactored to facilitate the development of [OpenSourceRoutingMachine.jl](https://github.com/moviro-hub/OpenSourceRoutingMachine.jl).
+Originally forked from Daniel Hofmann's `libosrmc`, this version has been substantially refactored to facilitate the development of [OpenSourceRoutingMachine.jl](https://github.com/moviro-hub/OpenSourceRoutingMachine.jl). This is also where the tests are located.
 
 ## Dependencies
 

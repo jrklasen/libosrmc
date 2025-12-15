@@ -156,37 +156,69 @@ OSRMC_API osrmc_config_t
 osrmc_config_construct(const char* base_path, osrmc_error_t* error);
 OSRMC_API void
 osrmc_config_destruct(osrmc_config_t config);
-// Config parameter setters
+// Config parameter setters and getters
 OSRMC_API void
 osrmc_config_set_max_locations_trip(osrmc_config_t config, int max_locations, osrmc_error_t* error);
 OSRMC_API void
+osrmc_config_get_max_locations_trip(osrmc_config_t config, int* out_max_locations, osrmc_error_t* error);
+OSRMC_API void
 osrmc_config_set_max_locations_viaroute(osrmc_config_t config, int max_locations, osrmc_error_t* error);
+OSRMC_API void
+osrmc_config_get_max_locations_viaroute(osrmc_config_t config, int* out_max_locations, osrmc_error_t* error);
 OSRMC_API void
 osrmc_config_set_max_locations_distance_table(osrmc_config_t config, int max_locations, osrmc_error_t* error);
 OSRMC_API void
+osrmc_config_get_max_locations_distance_table(osrmc_config_t config, int* out_max_locations, osrmc_error_t* error);
+OSRMC_API void
 osrmc_config_set_max_locations_map_matching(osrmc_config_t config, int max_locations, osrmc_error_t* error);
+OSRMC_API void
+osrmc_config_get_max_locations_map_matching(osrmc_config_t config, int* out_max_locations, osrmc_error_t* error);
 OSRMC_API void
 osrmc_config_set_max_radius_map_matching(osrmc_config_t config, double max_radius, osrmc_error_t* error);
 OSRMC_API void
+osrmc_config_get_max_radius_map_matching(osrmc_config_t config, double* out_max_radius, osrmc_error_t* error);
+OSRMC_API void
 osrmc_config_set_max_results_nearest(osrmc_config_t config, int max_results, osrmc_error_t* error);
+OSRMC_API void
+osrmc_config_get_max_results_nearest(osrmc_config_t config, int* out_max_results, osrmc_error_t* error);
 OSRMC_API void
 osrmc_config_set_default_radius(osrmc_config_t config, double default_radius, osrmc_error_t* error);
 OSRMC_API void
+osrmc_config_get_default_radius(osrmc_config_t config, double* out_default_radius, osrmc_error_t* error);
+OSRMC_API void
 osrmc_config_set_max_alternatives(osrmc_config_t config, int max_alternatives, osrmc_error_t* error);
+OSRMC_API void
+osrmc_config_get_max_alternatives(osrmc_config_t config, int* out_max_alternatives, osrmc_error_t* error);
 OSRMC_API void
 osrmc_config_set_use_shared_memory(osrmc_config_t config, bool use_shared_memory, osrmc_error_t* error);
 OSRMC_API void
+osrmc_config_get_use_shared_memory(osrmc_config_t config, bool* out_use_shared_memory, osrmc_error_t* error);
+OSRMC_API void
 osrmc_config_set_memory_file(osrmc_config_t config, const char* memory_file, osrmc_error_t* error);
+OSRMC_API void
+osrmc_config_get_memory_file(osrmc_config_t config, const char** out_memory_file, osrmc_error_t* error);
 OSRMC_API void
 osrmc_config_set_use_mmap(osrmc_config_t config, bool use_mmap, osrmc_error_t* error);
 OSRMC_API void
+osrmc_config_get_use_mmap(osrmc_config_t config, bool* out_use_mmap, osrmc_error_t* error);
+OSRMC_API void
 osrmc_config_set_algorithm(osrmc_config_t config, algorithm_t algorithm, osrmc_error_t* error);
+OSRMC_API void
+osrmc_config_get_algorithm(osrmc_config_t config, algorithm_t* out_algorithm, osrmc_error_t* error);
 OSRMC_API void
 osrmc_config_disable_feature_dataset(osrmc_config_t config, const char* dataset_name, osrmc_error_t* error);
 OSRMC_API void
+osrmc_config_get_disabled_feature_dataset_count(osrmc_config_t config, size_t* out_count, osrmc_error_t* error);
+OSRMC_API void
+osrmc_config_get_disabled_feature_dataset_at(osrmc_config_t config, size_t index, const char** out_dataset_name, osrmc_error_t* error);
+OSRMC_API void
 osrmc_config_set_verbosity(osrmc_config_t config, const char* verbosity, osrmc_error_t* error);
 OSRMC_API void
+osrmc_config_get_verbosity(osrmc_config_t config, const char** out_verbosity, osrmc_error_t* error);
+OSRMC_API void
 osrmc_config_set_dataset_name(osrmc_config_t config, const char* dataset_name, osrmc_error_t* error);
+OSRMC_API void
+osrmc_config_get_dataset_name(osrmc_config_t config, const char** out_dataset_name, osrmc_error_t* error);
 OSRMC_API void
 osrmc_config_clear_disabled_feature_datasets(osrmc_config_t config, osrmc_error_t* error);
 
@@ -200,9 +232,13 @@ osrmc_osrm_destruct(osrmc_osrm_t osrm);
 
 /* Base */
 
-// Base parameter setters (shared between all services)
+// Base parameter setters and getters (shared between all services)
 OSRMC_API void
 osrmc_params_add_coordinate(osrmc_params_t params, double longitude, double latitude, osrmc_error_t* error);
+OSRMC_API void
+osrmc_params_get_coordinate_count(osrmc_params_t params, size_t* out_count, osrmc_error_t* error);
+OSRMC_API void
+osrmc_params_get_coordinate(osrmc_params_t params, size_t coordinate_index, double* out_longitude, double* out_latitude, osrmc_error_t* error);
 OSRMC_API void
 osrmc_params_add_coordinate_with(osrmc_params_t params,
                                  double longitude,
@@ -214,19 +250,37 @@ osrmc_params_add_coordinate_with(osrmc_params_t params,
 OSRMC_API void
 osrmc_params_set_hint(osrmc_params_t params, size_t coordinate_index, const char* hint_base64, osrmc_error_t* error);
 OSRMC_API void
+osrmc_params_get_hint(osrmc_params_t params, size_t coordinate_index, const char** out_hint_base64, osrmc_error_t* error);
+OSRMC_API void
 osrmc_params_set_radius(osrmc_params_t params, size_t coordinate_index, double radius, osrmc_error_t* error);
+OSRMC_API void
+osrmc_params_get_radius(osrmc_params_t params, size_t coordinate_index, double* out_radius, int* out_is_set, osrmc_error_t* error);
 OSRMC_API void
 osrmc_params_set_bearing(osrmc_params_t params, size_t coordinate_index, int value, int range, osrmc_error_t* error);
 OSRMC_API void
+osrmc_params_get_bearing(osrmc_params_t params, size_t coordinate_index, int* out_value, int* out_range, int* out_is_set, osrmc_error_t* error);
+OSRMC_API void
 osrmc_params_set_approach(osrmc_params_t params, size_t coordinate_index, approach_t approach, osrmc_error_t* error);
+OSRMC_API void
+osrmc_params_get_approach(osrmc_params_t params, size_t coordinate_index, approach_t* out_approach, int* out_is_set, osrmc_error_t* error);
 OSRMC_API void
 osrmc_params_add_exclude(osrmc_params_t params, const char* exclude_profile, osrmc_error_t* error);
 OSRMC_API void
+osrmc_params_get_exclude_count(osrmc_params_t params, size_t* out_count, osrmc_error_t* error);
+OSRMC_API void
+osrmc_params_get_exclude(osrmc_params_t params, size_t index, const char** out_exclude_profile, osrmc_error_t* error);
+OSRMC_API void
 osrmc_params_set_generate_hints(osrmc_params_t params, int on, osrmc_error_t* error);
+OSRMC_API void
+osrmc_params_get_generate_hints(osrmc_params_t params, int* out_on, osrmc_error_t* error);
 OSRMC_API void
 osrmc_params_set_skip_waypoints(osrmc_params_t params, int on, osrmc_error_t* error);
 OSRMC_API void
+osrmc_params_get_skip_waypoints(osrmc_params_t params, int* out_on, osrmc_error_t* error);
+OSRMC_API void
 osrmc_params_set_snapping(osrmc_params_t params, snapping_t snapping, osrmc_error_t* error);
+OSRMC_API void
+osrmc_params_get_snapping(osrmc_params_t params, snapping_t* out_snapping, osrmc_error_t* error);
 
 /* Nearest */
 
@@ -235,9 +289,11 @@ OSRMC_API osrmc_nearest_params_t
 osrmc_nearest_params_construct(osrmc_error_t* error);
 OSRMC_API void
 osrmc_nearest_params_destruct(osrmc_nearest_params_t params);
-// Nearest parameter setters
+// Nearest parameter setters and getters
 OSRMC_API void
 osrmc_nearest_params_set_number_of_results(osrmc_nearest_params_t params, unsigned n, osrmc_error_t* error);
+OSRMC_API void
+osrmc_nearest_params_get_number_of_results(osrmc_nearest_params_t params, unsigned* out_n, osrmc_error_t* error);
 
 // Nearest response constructor and destructor
 OSRMC_API osrmc_nearest_response_t
@@ -260,25 +316,43 @@ OSRMC_API osrmc_route_params_t
 osrmc_route_params_construct(osrmc_error_t* error);
 OSRMC_API void
 osrmc_route_params_destruct(osrmc_route_params_t params);
-// Route parameter setters
+// Route parameter setters and getters
 OSRMC_API void
 osrmc_route_params_set_steps(osrmc_route_params_t params, int on, osrmc_error_t* error);
 OSRMC_API void
+osrmc_route_params_get_steps(osrmc_route_params_t params, int* out_on, osrmc_error_t* error);
+OSRMC_API void
 osrmc_route_params_set_alternatives(osrmc_route_params_t params, int on, osrmc_error_t* error);
+OSRMC_API void
+osrmc_route_params_get_alternatives(osrmc_route_params_t params, int* out_on, osrmc_error_t* error);
 OSRMC_API void
 osrmc_route_params_set_geometries(osrmc_route_params_t params, geometries_type_t geometries, osrmc_error_t* error);
 OSRMC_API void
+osrmc_route_params_get_geometries(osrmc_route_params_t params, geometries_type_t* out_geometries, osrmc_error_t* error);
+OSRMC_API void
 osrmc_route_params_set_overview(osrmc_route_params_t params, overview_type_t overview, osrmc_error_t* error);
+OSRMC_API void
+osrmc_route_params_get_overview(osrmc_route_params_t params, overview_type_t* out_overview, osrmc_error_t* error);
 OSRMC_API void
 osrmc_route_params_set_continue_straight(osrmc_route_params_t params, int on, osrmc_error_t* error);
 OSRMC_API void
+osrmc_route_params_get_continue_straight(osrmc_route_params_t params, int* out_on, int* out_is_set, osrmc_error_t* error);
+OSRMC_API void
 osrmc_route_params_set_number_of_alternatives(osrmc_route_params_t params, unsigned count, osrmc_error_t* error);
+OSRMC_API void
+osrmc_route_params_get_number_of_alternatives(osrmc_route_params_t params, unsigned* out_count, osrmc_error_t* error);
 OSRMC_API void
 osrmc_route_params_set_annotations(osrmc_route_params_t params,
                                    annotations_type_t annotations,
                                    osrmc_error_t* error);
 OSRMC_API void
+osrmc_route_params_get_annotations(osrmc_route_params_t params, annotations_type_t* out_annotations, osrmc_error_t* error);
+OSRMC_API void
 osrmc_route_params_add_waypoint(osrmc_route_params_t params, size_t index, osrmc_error_t* error);
+OSRMC_API void
+osrmc_route_params_get_waypoint_count(osrmc_route_params_t params, size_t* out_count, osrmc_error_t* error);
+OSRMC_API void
+osrmc_route_params_get_waypoint(osrmc_route_params_t params, size_t index, size_t* out_index, osrmc_error_t* error);
 OSRMC_API void
 osrmc_route_params_clear_waypoints(osrmc_route_params_t params);
 
@@ -303,23 +377,39 @@ OSRMC_API osrmc_table_params_t
 osrmc_table_params_construct(osrmc_error_t* error);
 OSRMC_API void
 osrmc_table_params_destruct(osrmc_table_params_t params);
-// Table parameter setters
+// Table parameter setters and getters
 OSRMC_API void
 osrmc_table_params_add_source(osrmc_table_params_t params, size_t index, osrmc_error_t* error);
 OSRMC_API void
+osrmc_table_params_get_source_count(osrmc_table_params_t params, size_t* out_count, osrmc_error_t* error);
+OSRMC_API void
+osrmc_table_params_get_source(osrmc_table_params_t params, size_t index, size_t* out_index, osrmc_error_t* error);
+OSRMC_API void
 osrmc_table_params_add_destination(osrmc_table_params_t params, size_t index, osrmc_error_t* error);
+OSRMC_API void
+osrmc_table_params_get_destination_count(osrmc_table_params_t params, size_t* out_count, osrmc_error_t* error);
+OSRMC_API void
+osrmc_table_params_get_destination(osrmc_table_params_t params, size_t index, size_t* out_index, osrmc_error_t* error);
 OSRMC_API void
 osrmc_table_params_set_annotations(osrmc_table_params_t params,
                                    table_annotations_type_t annotations,
                                    osrmc_error_t* error);
 OSRMC_API void
+osrmc_table_params_get_annotations(osrmc_table_params_t params, table_annotations_type_t* out_annotations, osrmc_error_t* error);
+OSRMC_API void
 osrmc_table_params_set_fallback_speed(osrmc_table_params_t params, double speed, osrmc_error_t* error);
+OSRMC_API void
+osrmc_table_params_get_fallback_speed(osrmc_table_params_t params, double* out_speed, osrmc_error_t* error);
 OSRMC_API void
 osrmc_table_params_set_fallback_coordinate_type(osrmc_table_params_t params,
                                                 table_coordinate_type_t coord_type,
                                                 osrmc_error_t* error);
 OSRMC_API void
+osrmc_table_params_get_fallback_coordinate_type(osrmc_table_params_t params, table_coordinate_type_t* out_coord_type, osrmc_error_t* error);
+OSRMC_API void
 osrmc_table_params_set_scale_factor(osrmc_table_params_t params, double scale_factor, osrmc_error_t* error);
+OSRMC_API void
+osrmc_table_params_get_scale_factor(osrmc_table_params_t params, double* out_scale_factor, osrmc_error_t* error);
 
 // Table response constructor and destructor
 OSRMC_API osrmc_table_response_t
@@ -342,33 +432,59 @@ OSRMC_API osrmc_match_params_t
 osrmc_match_params_construct(osrmc_error_t* error);
 OSRMC_API void
 osrmc_match_params_destruct(osrmc_match_params_t params);
-// Match parameter setters
+// Match parameter setters and getters
 OSRMC_API void
 osrmc_match_params_set_steps(osrmc_match_params_t params, int on, osrmc_error_t* error);
 OSRMC_API void
+osrmc_match_params_get_steps(osrmc_match_params_t params, int* out_on, osrmc_error_t* error);
+OSRMC_API void
 osrmc_match_params_set_alternatives(osrmc_match_params_t params, int on, osrmc_error_t* error);
+OSRMC_API void
+osrmc_match_params_get_alternatives(osrmc_match_params_t params, int* out_on, osrmc_error_t* error);
 OSRMC_API void
 osrmc_match_params_set_geometries(osrmc_match_params_t params, geometries_type_t geometries, osrmc_error_t* error);
 OSRMC_API void
+osrmc_match_params_get_geometries(osrmc_match_params_t params, geometries_type_t* out_geometries, osrmc_error_t* error);
+OSRMC_API void
 osrmc_match_params_set_overview(osrmc_match_params_t params, overview_type_t overview, osrmc_error_t* error);
+OSRMC_API void
+osrmc_match_params_get_overview(osrmc_match_params_t params, overview_type_t* out_overview, osrmc_error_t* error);
 OSRMC_API void
 osrmc_match_params_set_continue_straight(osrmc_match_params_t params, int on, osrmc_error_t* error);
 OSRMC_API void
+osrmc_match_params_get_continue_straight(osrmc_match_params_t params, int* out_on, int* out_is_set, osrmc_error_t* error);
+OSRMC_API void
 osrmc_match_params_set_number_of_alternatives(osrmc_match_params_t params, unsigned count, osrmc_error_t* error);
+OSRMC_API void
+osrmc_match_params_get_number_of_alternatives(osrmc_match_params_t params, unsigned* out_count, osrmc_error_t* error);
 OSRMC_API void
 osrmc_match_params_set_annotations(osrmc_match_params_t params,
                                    annotations_type_t annotations,
                                    osrmc_error_t* error);
 OSRMC_API void
+osrmc_match_params_get_annotations(osrmc_match_params_t params, annotations_type_t* out_annotations, osrmc_error_t* error);
+OSRMC_API void
 osrmc_match_params_add_waypoint(osrmc_match_params_t params, size_t index, osrmc_error_t* error);
+OSRMC_API void
+osrmc_match_params_get_waypoint_count(osrmc_match_params_t params, size_t* out_count, osrmc_error_t* error);
+OSRMC_API void
+osrmc_match_params_get_waypoint(osrmc_match_params_t params, size_t index, size_t* out_index, osrmc_error_t* error);
 OSRMC_API void
 osrmc_match_params_clear_waypoints(osrmc_match_params_t params);
 OSRMC_API void
 osrmc_match_params_add_timestamp(osrmc_match_params_t params, unsigned timestamp, osrmc_error_t* error);
 OSRMC_API void
+osrmc_match_params_get_timestamp_count(osrmc_match_params_t params, size_t* out_count, osrmc_error_t* error);
+OSRMC_API void
+osrmc_match_params_get_timestamp(osrmc_match_params_t params, size_t index, unsigned* out_timestamp, osrmc_error_t* error);
+OSRMC_API void
 osrmc_match_params_set_gaps(osrmc_match_params_t params, match_gaps_type_t gaps, osrmc_error_t* error);
 OSRMC_API void
+osrmc_match_params_get_gaps(osrmc_match_params_t params, match_gaps_type_t* out_gaps, osrmc_error_t* error);
+OSRMC_API void
 osrmc_match_params_set_tidy(osrmc_match_params_t params, int on, osrmc_error_t* error);
+OSRMC_API void
+osrmc_match_params_get_tidy(osrmc_match_params_t params, int* out_on, osrmc_error_t* error);
 
 // Match response constructor and destructor
 OSRMC_API osrmc_match_response_t
@@ -391,35 +507,59 @@ OSRMC_API osrmc_trip_params_t
 osrmc_trip_params_construct(osrmc_error_t* error);
 OSRMC_API void
 osrmc_trip_params_destruct(osrmc_trip_params_t params);
-// Trip parameter setters
+// Trip parameter setters and getters
 OSRMC_API void
 osrmc_trip_params_set_roundtrip(osrmc_trip_params_t params, int on, osrmc_error_t* error);
 OSRMC_API void
+osrmc_trip_params_get_roundtrip(osrmc_trip_params_t params, int* out_on, osrmc_error_t* error);
+OSRMC_API void
 osrmc_trip_params_set_source(osrmc_trip_params_t params, trip_source_type_t source, osrmc_error_t* error);
+OSRMC_API void
+osrmc_trip_params_get_source(osrmc_trip_params_t params, trip_source_type_t* out_source, osrmc_error_t* error);
 OSRMC_API void
 osrmc_trip_params_set_destination(osrmc_trip_params_t params,
                                   trip_destination_type_t destination,
                                   osrmc_error_t* error);
 OSRMC_API void
+osrmc_trip_params_get_destination(osrmc_trip_params_t params, trip_destination_type_t* out_destination, osrmc_error_t* error);
+OSRMC_API void
 osrmc_trip_params_set_steps(osrmc_trip_params_t params, int on, osrmc_error_t* error);
+OSRMC_API void
+osrmc_trip_params_get_steps(osrmc_trip_params_t params, int* out_on, osrmc_error_t* error);
 OSRMC_API void
 osrmc_trip_params_set_alternatives(osrmc_trip_params_t params, int on, osrmc_error_t* error);
 OSRMC_API void
+osrmc_trip_params_get_alternatives(osrmc_trip_params_t params, int* out_on, osrmc_error_t* error);
+OSRMC_API void
 osrmc_trip_params_set_geometries(osrmc_trip_params_t params, geometries_type_t geometries, osrmc_error_t* error);
+OSRMC_API void
+osrmc_trip_params_get_geometries(osrmc_trip_params_t params, geometries_type_t* out_geometries, osrmc_error_t* error);
 OSRMC_API void
 osrmc_trip_params_set_overview(osrmc_trip_params_t params, overview_type_t overview, osrmc_error_t* error);
 OSRMC_API void
+osrmc_trip_params_get_overview(osrmc_trip_params_t params, overview_type_t* out_overview, osrmc_error_t* error);
+OSRMC_API void
 osrmc_trip_params_set_continue_straight(osrmc_trip_params_t params, int on, osrmc_error_t* error);
 OSRMC_API void
+osrmc_trip_params_get_continue_straight(osrmc_trip_params_t params, int* out_on, int* out_is_set, osrmc_error_t* error);
+OSRMC_API void
 osrmc_trip_params_set_number_of_alternatives(osrmc_trip_params_t params, unsigned count, osrmc_error_t* error);
+OSRMC_API void
+osrmc_trip_params_get_number_of_alternatives(osrmc_trip_params_t params, unsigned* out_count, osrmc_error_t* error);
 OSRMC_API void
 osrmc_trip_params_set_annotations(osrmc_trip_params_t params,
                                   annotations_type_t annotations,
                                   osrmc_error_t* error);
 OSRMC_API void
+osrmc_trip_params_get_annotations(osrmc_trip_params_t params, annotations_type_t* out_annotations, osrmc_error_t* error);
+OSRMC_API void
 osrmc_trip_params_clear_waypoints(osrmc_trip_params_t params);
 OSRMC_API void
 osrmc_trip_params_add_waypoint(osrmc_trip_params_t params, size_t index, osrmc_error_t* error);
+OSRMC_API void
+osrmc_trip_params_get_waypoint_count(osrmc_trip_params_t params, size_t* out_count, osrmc_error_t* error);
+OSRMC_API void
+osrmc_trip_params_get_waypoint(osrmc_trip_params_t params, size_t index, size_t* out_index, osrmc_error_t* error);
 
 // Trip response constructor and destructor
 OSRMC_API osrmc_trip_response_t
@@ -442,13 +582,19 @@ OSRMC_API osrmc_tile_params_t
 osrmc_tile_params_construct(osrmc_error_t* error);
 OSRMC_API void
 osrmc_tile_params_destruct(osrmc_tile_params_t params);
-// Tile parameter setters
+// Tile parameter setters and getters
 OSRMC_API void
 osrmc_tile_params_set_x(osrmc_tile_params_t params, unsigned x, osrmc_error_t* error);
 OSRMC_API void
+osrmc_tile_params_get_x(osrmc_tile_params_t params, unsigned* out_x, osrmc_error_t* error);
+OSRMC_API void
 osrmc_tile_params_set_y(osrmc_tile_params_t params, unsigned y, osrmc_error_t* error);
 OSRMC_API void
+osrmc_tile_params_get_y(osrmc_tile_params_t params, unsigned* out_y, osrmc_error_t* error);
+OSRMC_API void
 osrmc_tile_params_set_z(osrmc_tile_params_t params, unsigned z, osrmc_error_t* error);
+OSRMC_API void
+osrmc_tile_params_get_z(osrmc_tile_params_t params, unsigned* out_z, osrmc_error_t* error);
 
 // Tile response constructor and destructor
 OSRMC_API osrmc_tile_response_t
