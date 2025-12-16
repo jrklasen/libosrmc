@@ -9,43 +9,42 @@
  * libosrmc Interface Overview
  * ===========================
  *
- * Services: Nearest, Route, Table, Match, Trip, Tile
+ * libosrmc provides a C interface to OSRM (Open Source Routing Machine), enabling
+ * high-performance route planning and related operations from C and other languages
+ * that can interface with C libraries. This design allows OSRM to be integrated
+ * into environments where C++ is not directly accessible or where a stable C ABI
+ * is required for language bindings.
  *
- * Basic Workflow:
- *   1. osrmc_config_construct() -> osrmc_osrm_construct()
- *   2. osrmc_*_params_construct() -> add coordinates -> set options
- *   3. osrmc_*() -> get response via *_response_transfer_flatbuffer()
- *   4. Cleanup: *_response_destruct(), osrmc_osrm_destruct()
+ * Design Philosophy:
+ *   The API follows an object-oriented pattern using opaque handles, providing
+ *   type safety and encapsulation while maintaining C compatibility. Resources
+ *   are explicitly managed through constructor/destructor pairs, giving callers
+ *   full control over memory lifecycle and enabling predictable resource cleanup
+ *   in managed language environments.
  *
- * Example:
- *   osrmc_error_t error = NULL;
- *   osrmc_config_t config = osrmc_config_construct(path, &error);
- *   osrmc_osrm_t osrm = osrmc_osrm_construct(config, &error);
- *   osrmc_route_params_t params = osrmc_route_params_construct(&error);
- *   osrmc_params_add_coordinate((osrmc_params_t)params, lon, lat, &error);
- *   osrmc_route_response_t response = osrmc_route(osrm, params, &error);
- *   if (!error && response) {
- *     uint8_t* data = NULL;
- *     size_t size = 0;
- *     void (*deleter)(void*) = NULL;
- *     osrmc_route_response_transfer_flatbuffer(response, &data, &size, &deleter, &error);
- *     if (data) {
- *       // Use data (valid until deleter is called)
- *       deleter(data);
- *     }
- *     osrmc_route_response_destruct(response);
- *   }
- *   if (error) {
- *     fprintf(stderr, "Error: %s\n", osrmc_error_message(error));
- *     osrmc_error_destruct(error);
- *   }
+ * Services:
+ *   Six routing services are exposed: Nearest (find closest waypoint), Route
+ *   (point-to-point routing), Table (distance/time matrices), Match (GPS trace
+ *   matching), Trip (traveling salesman problem), and Tile (vector tile geometry).
+ *   Each service follows a consistent pattern: construct parameters, configure
+ *   options, execute, and extract results.
  *
  * Error Handling:
- *   All functions use osrmc_error_t* out parameter. Check after each call.
+ *   All functions accept an optional osrmc_error_t* output parameter. This design
+ *   allows error information to be returned without using return values, preserving
+ *   the ability to return NULL or other sentinel values for invalid operations.
+ *   Errors are first-class objects that must be explicitly checked and destroyed,
+ *   ensuring that error information is never silently ignored and memory is properly
+ *   managed even in error paths.
  *
  * Response Formats:
- *   FlatBuffers only. Format is automatically set when params are constructed.
- *   Tile service returns binary data via osrmc_tile_response_data().
+ *   Responses are returned as FlatBuffers, a zero-copy serialization format that
+ *   enables efficient data transfer without intermediate parsing. The transfer
+ *   mechanism uses a deleter callback pattern, allowing the library to manage
+ *   memory allocation while giving callers control over when data is freed. This
+ *   design supports both immediate consumption and delayed processing scenarios.
+ *   The Tile service is an exception, returning raw binary MVT (Mapbox Vector Tile)
+ *   data.
  *
  */
 
