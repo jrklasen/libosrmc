@@ -42,7 +42,9 @@ osrmc_get_version(void) {
 
 int
 osrmc_is_abi_compatible(void) {
-  return osrmc_get_version() >> 16u == OSRMC_VERSION_MAJOR;
+  unsigned version = osrmc_get_version();
+  return (version >> 16u) == OSRMC_VERSION_MAJOR &&
+         ((version >> 8u) & 0xFFu) == OSRMC_VERSION_MINOR;
 }
 
 /* Internal structures */
