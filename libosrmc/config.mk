@@ -2,7 +2,7 @@
 
 VERSION_MAJOR = 6
 VERSION_MINOR = 0
-VERSION_PATCH = 1
+VERSION_PATCH = 2
 
 PREFIX ?= /usr/local
 PKG_CONFIG_PATH ?= $(PREFIX)/lib/pkgconfig
@@ -52,7 +52,7 @@ else ifeq ($(TARGET),apple)
     # macOS needs install_name for library versioning; RPATH for non-standard installs
     LDFLAGS_SHARED = -dynamiclib -install_name $(PREFIX)/lib/libosrmc.$(VERSION_MAJOR)$(SHARED_EXT)
     LDFLAGS_RPATH = -Wl,-rpath,$(PREFIX)/lib
-    STDCPP_LIB = -lstdc++
+    STDCPP_LIB = -lc++
 else
     SHARED_EXT = .so
     IMPLIB_EXT =
@@ -83,8 +83,8 @@ ifeq ($(SKIP_DEPS),)
         $(error pkg-config not found. Please install pkg-config.)
     endif
 
-    ifeq ($(shell PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) $(PKG_CONFIG) --exists libosrm 2>/dev/null && echo yes),)
-        $(error libosrm not found. Please ensure OSRM is installed and pkg-config can find it.)
+    ifeq ($(shell PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) $(PKG_CONFIG) --exists "libosrm >= 6.0" 2>/dev/null && echo yes),)
+        $(error libosrm >= 6.0 not found. Please ensure OSRM 6.x is installed and pkg-config can find it.)
     endif
 
     OSRM_CFLAGS := $(shell PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) $(PKG_CONFIG) --cflags libosrm 2>/dev/null)
@@ -109,5 +109,8 @@ endif
 
 # LDFLAGS order: shared lib flags -> RPATH -> library search paths -> libraries -> stdlib libs
 LDFLAGS = $(LDFLAGS_SHARED) $(LDFLAGS_RPATH) -L$(OSRM_LIBDIR) $(OSRM_LDFLAGS) $(STDCPP_LIB)
+ifneq ($(EXTRA_LDFLAGS),)
+    LDFLAGS += $(EXTRA_LDFLAGS)
+endif
 
 export PKG_CONFIG_PATH

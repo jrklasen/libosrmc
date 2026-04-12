@@ -44,7 +44,18 @@
  *   memory allocation while giving callers control over when data is freed. This
  *   design supports both immediate consumption and delayed processing scenarios.
  *   The Tile service is an exception, returning raw binary MVT (Mapbox Vector Tile)
- *   data.
+ *   data. The tile data pointer is valid only until osrmc_tile_response_destruct()
+ *   is called — callers must copy the data if they need to retain it.
+ *
+ * Thread Safety:
+ *   An osrmc_osrm_t instance may be shared across threads for concurrent service
+ *   calls (OSRM's internal data structures are read-only after construction).
+ *   However, parameter and response objects are NOT thread-safe and must not be
+ *   shared between threads without external synchronization.
+ *
+ *   Some getter functions (osrmc_config_get_memory_file, osrmc_params_get_hint)
+ *   return pointers to thread-local storage. These pointers are valid only until
+ *   the next call to the same function on the same thread.
  *
  */
 
@@ -54,7 +65,9 @@ extern "C" {
 
 /* ABI Stability */
 
-#if __GNUC__ >= 4
+#ifdef _MSC_VER
+#define OSRMC_API __declspec(dllexport)
+#elif __GNUC__ >= 4
 #define OSRMC_API __attribute__((visibility("default")))
 #else
 #define OSRMC_API
@@ -62,7 +75,7 @@ extern "C" {
 
 #define OSRMC_VERSION_MAJOR 6
 #define OSRMC_VERSION_MINOR 0
-#define OSRMC_VERSION_PATCH 1
+#define OSRMC_VERSION_PATCH 2
 // Version encoding: major (16 bits) | minor (8 bits) | patch (8 bits)
 #define OSRMC_VERSION ((OSRMC_VERSION_MAJOR << 16) | (OSRMC_VERSION_MINOR << 8) | OSRMC_VERSION_PATCH)
 
@@ -196,6 +209,8 @@ OSRMC_API void
 osrmc_config_get_use_shared_memory(osrmc_config_t config, bool* out_use_shared_memory, osrmc_error_t* error);
 OSRMC_API void
 osrmc_config_set_memory_file(osrmc_config_t config, const char* memory_file, osrmc_error_t* error);
+/** Returns the memory file path. The returned string pointer is valid only until the next call
+ *  to this function on the same thread. Callers must copy the string if they need to keep it. */
 OSRMC_API void
 osrmc_config_get_memory_file(osrmc_config_t config, const char** out_memory_file, osrmc_error_t* error);
 OSRMC_API void
@@ -257,6 +272,8 @@ osrmc_params_add_coordinate_with(osrmc_params_t params,
                                  osrmc_error_t* error);
 OSRMC_API void
 osrmc_params_set_hint(osrmc_params_t params, size_t coordinate_index, const char* hint_base64, osrmc_error_t* error);
+/** Returns the hint as a base64 string. The returned string pointer is valid only until the next
+ *  call to this function on the same thread. Callers must copy the string if they need to keep it. */
 OSRMC_API void
 osrmc_params_get_hint(osrmc_params_t params,
                       size_t coordinate_index,
@@ -324,7 +341,10 @@ OSRMC_API osrmc_nearest_response_t
 osrmc_nearest(osrmc_osrm_t osrm, osrmc_nearest_params_t params, osrmc_error_t* error);
 OSRMC_API void
 osrmc_nearest_response_destruct(osrmc_nearest_response_t response);
-// Nearest response getters (transfer ownership to caller)
+/** Transfers ownership of the FlatBuffer response data to the caller.
+ *  After this call, the caller owns the data pointer and must free it by calling
+ *  the returned deleter function: deleter(data). The response object itself must
+ *  still be destroyed via osrmc_nearest_response_destruct(). */
 OSRMC_API void
 osrmc_nearest_response_transfer_flatbuffer(osrmc_nearest_response_t response,
                                            uint8_t** data,
@@ -387,7 +407,10 @@ OSRMC_API osrmc_route_response_t
 osrmc_route(osrmc_osrm_t osrm, osrmc_route_params_t params, osrmc_error_t* error);
 OSRMC_API void
 osrmc_route_response_destruct(osrmc_route_response_t response);
-// Route response getters (transfer ownership to caller)
+/** Transfers ownership of the FlatBuffer response data to the caller.
+ *  After this call, the caller owns the data pointer and must free it by calling
+ *  the returned deleter function: deleter(data). The response object itself must
+ *  still be destroyed via osrmc_route_response_destruct(). */
 OSRMC_API void
 osrmc_route_response_transfer_flatbuffer(osrmc_route_response_t response,
                                          uint8_t** data,
@@ -445,7 +468,10 @@ OSRMC_API osrmc_table_response_t
 osrmc_table(osrmc_osrm_t osrm, osrmc_table_params_t params, osrmc_error_t* error);
 OSRMC_API void
 osrmc_table_response_destruct(osrmc_table_response_t response);
-// Table response getters (transfer ownership to caller)
+/** Transfers ownership of the FlatBuffer response data to the caller.
+ *  After this call, the caller owns the data pointer and must free it by calling
+ *  the returned deleter function: deleter(data). The response object itself must
+ *  still be destroyed via osrmc_table_response_destruct(). */
 OSRMC_API void
 osrmc_table_response_transfer_flatbuffer(osrmc_table_response_t response,
                                          uint8_t** data,
@@ -525,7 +551,10 @@ OSRMC_API osrmc_match_response_t
 osrmc_match(osrmc_osrm_t osrm, osrmc_match_params_t params, osrmc_error_t* error);
 OSRMC_API void
 osrmc_match_response_destruct(osrmc_match_response_t response);
-// Match response getters (transfer ownership to caller)
+/** Transfers ownership of the FlatBuffer response data to the caller.
+ *  After this call, the caller owns the data pointer and must free it by calling
+ *  the returned deleter function: deleter(data). The response object itself must
+ *  still be destroyed via osrmc_match_response_destruct(). */
 OSRMC_API void
 osrmc_match_response_transfer_flatbuffer(osrmc_match_response_t response,
                                          uint8_t** data,
@@ -601,7 +630,10 @@ OSRMC_API osrmc_trip_response_t
 osrmc_trip(osrmc_osrm_t osrm, osrmc_trip_params_t params, osrmc_error_t* error);
 OSRMC_API void
 osrmc_trip_response_destruct(osrmc_trip_response_t response);
-// Trip response getters (transfer ownership to caller)
+/** Transfers ownership of the FlatBuffer response data to the caller.
+ *  After this call, the caller owns the data pointer and must free it by calling
+ *  the returned deleter function: deleter(data). The response object itself must
+ *  still be destroyed via osrmc_trip_response_destruct(). */
 OSRMC_API void
 osrmc_trip_response_transfer_flatbuffer(osrmc_trip_response_t response,
                                         uint8_t** data,
@@ -638,6 +670,10 @@ osrmc_tile_response_destruct(osrmc_tile_response_t response);
 // Tile response getters
 OSRMC_API size_t
 osrmc_tile_response_size(osrmc_tile_response_t response, osrmc_error_t* error);
+/** Returns a pointer to the raw tile data. The pointer is valid only until
+ *  osrmc_tile_response_destruct() is called. Callers must copy the data if they
+ *  need it beyond the response lifetime. If size is non-null, it is set to the
+ *  data length in bytes. */
 OSRMC_API const char*
 osrmc_tile_response_data(osrmc_tile_response_t response, size_t* size, osrmc_error_t* error);
 
