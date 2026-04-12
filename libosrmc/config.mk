@@ -2,7 +2,7 @@
 
 VERSION_MAJOR = 6
 VERSION_MINOR = 0
-VERSION_PATCH = 1
+VERSION_PATCH = 3
 
 PREFIX ?= /usr/local
 PKG_CONFIG_PATH ?= $(PREFIX)/lib/pkgconfig
