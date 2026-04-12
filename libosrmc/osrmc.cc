@@ -104,6 +104,13 @@ osrmc_transfer_flatbuffer_helper(osrmc_response* resp,
                                  size_t* size,
                                  void (**deleter)(void*),
                                  osrmc_error_t* error) {
+  if (!resp) {
+    osrmc_set_error(error, "InvalidArgument", "Response must not be null");
+    if (data) *data = nullptr;
+    if (size) *size = 0;
+    if (deleter) *deleter = nullptr;
+    return;
+  }
   if (!std::holds_alternative<flatbuffers::FlatBufferBuilder>(resp->result)) {
     osrmc_set_error(error, "InvalidFormat", "Response is not in FlatBuffer format");
     if (data)
@@ -133,7 +140,12 @@ osrmc_transfer_flatbuffer_helper(osrmc_response* resp,
     *size = buffer_size;
   } else {
     // Offset case: we need to copy just the data portion
-    // Calculate actual data size (buffer_size includes offset, data size is buffer_size - buffer_offset)
+    if (buffer_offset > buffer_size) {
+      std::free(raw_buffer_ptr);
+      osrmc_set_error(error, "InvalidBuffer", "Buffer offset exceeds buffer size");
+      *data = nullptr; *size = 0; *deleter = nullptr;
+      return;
+    }
     size_t data_size = buffer_size - buffer_offset;
     uint8_t* copied_data = static_cast<uint8_t*>(std::malloc(data_size));
     if (!copied_data) {
@@ -197,12 +209,21 @@ osrmc_service_helper(osrmc_osrm_t osrm,
       // Try to extract error from result if it's JSON (for error responses)
       if (std::holds_alternative<osrm::json::Object>(result)) {
         auto& json = std::get<osrm::json::Object>(result);
-        auto code = std::get<osrm::json::String>(json.values["code"]).value;
-        auto message = std::get<osrm::json::String>(json.values["message"]).value;
-        if (code.empty()) {
-          code = "Unknown";
+        auto code_it = json.values.find("code");
+        auto msg_it = json.values.find("message");
+        if (code_it != json.values.end() &&
+            std::holds_alternative<osrm::json::String>(code_it->second) &&
+            msg_it != json.values.end() &&
+            std::holds_alternative<osrm::json::String>(msg_it->second)) {
+          auto code = std::get<osrm::json::String>(code_it->second).value;
+          auto message = std::get<osrm::json::String>(msg_it->second).value;
+          if (code.empty()) {
+            code = "Unknown";
+          }
+          osrmc_set_error(error, code.c_str(), message.c_str());
+        } else {
+          osrmc_set_error(error, error_name, "Request failed");
         }
-        osrmc_set_error(error, code.c_str(), message.c_str());
       } else {
         osrmc_set_error(error, error_name, "Request failed");
       }
@@ -613,8 +634,9 @@ osrmc_feature_dataset_name(osrm::storage::FeatureDataset dataset) {
       return "route_steps";
     case osrm::storage::FeatureDataset::ROUTE_GEOMETRY:
       return "route_geometry";
+    default:
+      return "unknown";
   }
-  return "";
 }
 
 void
@@ -1125,6 +1147,9 @@ osrmc_params_get_approach(osrmc_params_t params,
     case osrm::engine::Approach::OPPOSITE:
       *out_approach = APPROACH_OPPOSITE;
       break;
+    default:
+      osrmc_set_error(error, "UnknownApproach", "Unknown approach type");
+      return;
   }
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
@@ -1282,6 +1307,9 @@ osrmc_params_get_snapping(osrmc_params_t params, snapping_t* out_snapping, osrmc
     case osrm::engine::api::BaseParameters::SnappingType::Any:
       *out_snapping = SNAPPING_ANY;
       break;
+    default:
+      osrmc_set_error(error, "UnknownSnapping", "Unknown snapping type");
+      return;
   }
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
@@ -1337,13 +1365,16 @@ osrmc_nearest_params_get_number_of_results(osrmc_nearest_params_t params, unsign
 }
 
 osrmc_nearest_response_t
-osrmc_nearest(osrmc_osrm_t osrm, osrmc_nearest_params_t params, osrmc_error_t* error) {
+osrmc_nearest(osrmc_osrm_t osrm, osrmc_nearest_params_t params, osrmc_error_t* error) try {
   return osrmc_service_helper<osrmc_nearest_params_t, osrm::NearestParameters, osrmc_nearest_response_t>(
     osrm,
     params,
     [](osrm::OSRM& o, osrm::NearestParameters& p, osrm::engine::api::ResultT& r) { return o.Nearest(p, r); },
     "NearestError",
     error);
+} catch (const std::exception& e) {
+  osrmc_error_from_exception(e, error);
+  return nullptr;
 }
 
 void
@@ -1509,6 +1540,8 @@ osrmc_route_params_get_geometries(osrmc_route_params_t params,
     case osrm::RouteParameters::GeometriesType::GeoJSON:
       *out_geometries = GEOMETRIES_GEOJSON;
       break;
+    default:
+      break;
   }
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
@@ -1559,6 +1592,8 @@ osrmc_route_params_get_overview(osrmc_route_params_t params, overview_type_t* ou
       break;
     case osrm::RouteParameters::OverviewType::False:
       *out_overview = OVERVIEW_FALSE;
+      break;
+    default:
       break;
   }
 } catch (const std::exception& e) {
@@ -1733,13 +1768,16 @@ osrmc_route_params_clear_waypoints(osrmc_route_params_t params, osrmc_error_t* e
 }
 
 osrmc_route_response_t
-osrmc_route(osrmc_osrm_t osrm, osrmc_route_params_t params, osrmc_error_t* error) {
+osrmc_route(osrmc_osrm_t osrm, osrmc_route_params_t params, osrmc_error_t* error) try {
   return osrmc_service_helper<osrmc_route_params_t, osrm::RouteParameters, osrmc_route_response_t>(
     osrm,
     params,
     [](osrm::OSRM& o, osrm::RouteParameters& p, osrm::engine::api::ResultT& r) { return o.Route(p, r); },
     "RouteError",
     error);
+} catch (const std::exception& e) {
+  osrmc_error_from_exception(e, error);
+  return nullptr;
 }
 
 void
@@ -1956,6 +1994,8 @@ osrmc_table_params_get_annotations(osrmc_table_params_t params,
     case osrm::TableParameters::AnnotationsType::All:
       *out_annotations = TABLE_ANNOTATIONS_ALL;
       break;
+    default:
+      break;
   }
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
@@ -2037,6 +2077,8 @@ osrmc_table_params_get_fallback_coordinate_type(osrmc_table_params_t params,
     case osrm::TableParameters::FallbackCoordinateType::Snapped:
       *out_coord_type = TABLE_COORDINATE_SNAPPED;
       break;
+    default:
+      break;
   }
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
@@ -2075,13 +2117,16 @@ osrmc_table_params_get_scale_factor(osrmc_table_params_t params, double* out_sca
 }
 
 osrmc_table_response_t
-osrmc_table(osrmc_osrm_t osrm, osrmc_table_params_t params, osrmc_error_t* error) {
+osrmc_table(osrmc_osrm_t osrm, osrmc_table_params_t params, osrmc_error_t* error) try {
   return osrmc_service_helper<osrmc_table_params_t, osrm::TableParameters, osrmc_table_response_t>(
     osrm,
     params,
     [](osrm::OSRM& o, osrm::TableParameters& p, osrm::engine::api::ResultT& r) { return o.Table(p, r); },
     "TableError",
     error);
+} catch (const std::exception& e) {
+  osrmc_error_from_exception(e, error);
+  return nullptr;
 }
 
 void
@@ -2247,6 +2292,8 @@ osrmc_match_params_get_geometries(osrmc_match_params_t params,
     case osrm::RouteParameters::GeometriesType::GeoJSON:
       *out_geometries = GEOMETRIES_GEOJSON;
       break;
+    default:
+      break;
   }
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
@@ -2297,6 +2344,8 @@ osrmc_match_params_get_overview(osrmc_match_params_t params, overview_type_t* ou
       break;
     case osrm::RouteParameters::OverviewType::False:
       *out_overview = OVERVIEW_FALSE;
+      break;
+    default:
       break;
   }
 } catch (const std::exception& e) {
@@ -2578,13 +2627,16 @@ osrmc_match_params_get_tidy(osrmc_match_params_t params, int* out_on, osrmc_erro
 }
 
 osrmc_match_response_t
-osrmc_match(osrmc_osrm_t osrm, osrmc_match_params_t params, osrmc_error_t* error) {
+osrmc_match(osrmc_osrm_t osrm, osrmc_match_params_t params, osrmc_error_t* error) try {
   return osrmc_service_helper<osrmc_match_params_t, osrm::MatchParameters, osrmc_match_response_t>(
     osrm,
     params,
     [](osrm::OSRM& o, osrm::MatchParameters& p, osrm::engine::api::ResultT& r) { return o.Match(p, r); },
     "MatchError",
     error);
+} catch (const std::exception& e) {
+  osrmc_error_from_exception(e, error);
+  return nullptr;
 }
 
 void
@@ -2838,6 +2890,8 @@ osrmc_trip_params_get_geometries(osrmc_trip_params_t params,
     case osrm::RouteParameters::GeometriesType::GeoJSON:
       *out_geometries = GEOMETRIES_GEOJSON;
       break;
+    default:
+      break;
   }
 } catch (const std::exception& e) {
   osrmc_error_from_exception(e, error);
@@ -2888,6 +2942,8 @@ osrmc_trip_params_get_overview(osrmc_trip_params_t params, overview_type_t* out_
       break;
     case osrm::RouteParameters::OverviewType::False:
       *out_overview = OVERVIEW_FALSE;
+      break;
+    default:
       break;
   }
 } catch (const std::exception& e) {
@@ -3059,13 +3115,16 @@ osrmc_trip_params_get_waypoint(osrmc_trip_params_t params, size_t index, size_t*
 }
 
 osrmc_trip_response_t
-osrmc_trip(osrmc_osrm_t osrm, osrmc_trip_params_t params, osrmc_error_t* error) {
+osrmc_trip(osrmc_osrm_t osrm, osrmc_trip_params_t params, osrmc_error_t* error) try {
   return osrmc_service_helper<osrmc_trip_params_t, osrm::TripParameters, osrmc_trip_response_t>(
     osrm,
     params,
     [](osrm::OSRM& o, osrm::TripParameters& p, osrm::engine::api::ResultT& r) { return o.Trip(p, r); },
     "TripError",
     error);
+} catch (const std::exception& e) {
+  osrmc_error_from_exception(e, error);
+  return nullptr;
 }
 
 void
