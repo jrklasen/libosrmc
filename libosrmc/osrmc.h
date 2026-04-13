@@ -73,9 +73,9 @@ extern "C" {
 #define OSRMC_API
 #endif
 
-#define OSRMC_VERSION_MAJOR 6
-#define OSRMC_VERSION_MINOR 0
-#define OSRMC_VERSION_PATCH 3
+#define OSRMC_VERSION_MAJOR 26
+#define OSRMC_VERSION_MINOR 4
+#define OSRMC_VERSION_PATCH 0
 // Version encoding: major (16 bits) | minor (8 bits) | patch (8 bits)
 #define OSRMC_VERSION ((OSRMC_VERSION_MAJOR << 16) | (OSRMC_VERSION_MINOR << 8) | OSRMC_VERSION_PATCH)
 
