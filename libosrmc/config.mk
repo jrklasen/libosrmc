@@ -83,8 +83,19 @@ ifeq ($(SKIP_DEPS),)
         $(error pkg-config not found. Please install pkg-config.)
     endif
 
-    ifeq ($(shell PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) $(PKG_CONFIG) --exists "libosrm >= 6.0" 2>/dev/null && echo yes),)
-        $(error libosrm >= 6.0 not found. Please ensure OSRM 6.x is installed and pkg-config can find it.)
+    ifeq ($(shell PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) $(PKG_CONFIG) --exists libosrm 2>/dev/null && echo yes),)
+        $(error libosrm not found. Please ensure OSRM is installed and pkg-config can find it.)
+    endif
+
+    # Verify OSRM major.minor version via installed header (pkg-config Version field is broken upstream)
+    OSRM_INCLUDE := $(shell PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) $(PKG_CONFIG) --cflags-only-I libosrm 2>/dev/null)
+    OSRM_MAJOR := $(shell echo '\#include "util/version.hpp"' | $(CXX) -E $(OSRM_INCLUDE) -x c++ - 2>/dev/null | grep 'OSRM_VERSION_MAJOR' | tail -1 | awk '{print $$NF}')
+    OSRM_MINOR := $(shell echo '\#include "util/version.hpp"' | $(CXX) -E $(OSRM_INCLUDE) -x c++ - 2>/dev/null | grep 'OSRM_VERSION_MINOR' | tail -1 | awk '{print $$NF}')
+    ifneq ($(OSRM_MAJOR),$(VERSION_MAJOR))
+        $(error OSRM major version mismatch: expected $(VERSION_MAJOR), got $(OSRM_MAJOR))
+    endif
+    ifneq ($(OSRM_MINOR),$(VERSION_MINOR))
+        $(error OSRM minor version mismatch: expected $(VERSION_MINOR), got $(OSRM_MINOR))
     endif
 
     OSRM_CFLAGS := $(shell PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) $(PKG_CONFIG) --cflags libosrm 2>/dev/null)
