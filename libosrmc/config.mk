@@ -1,8 +1,8 @@
 # libosrmc Build Configuration
 
-VERSION_MAJOR = 6
-VERSION_MINOR = 0
-VERSION_PATCH = 3
+VERSION_MAJOR = 26
+VERSION_MINOR = 4
+VERSION_PATCH = 0
 
 PREFIX ?= /usr/local
 PKG_CONFIG_PATH ?= $(PREFIX)/lib/pkgconfig
@@ -83,8 +83,8 @@ ifeq ($(SKIP_DEPS),)
         $(error pkg-config not found. Please install pkg-config.)
     endif
 
-    ifeq ($(shell PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) $(PKG_CONFIG) --exists "libosrm >= 6.0" 2>/dev/null && echo yes),)
-        $(error libosrm >= 6.0 not found. Please ensure OSRM 6.x is installed and pkg-config can find it.)
+    ifeq ($(shell PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) $(PKG_CONFIG) --exists libosrm 2>/dev/null && echo yes),)
+        $(error libosrm not found. Please ensure OSRM is installed and pkg-config can find it.)
     endif
 
     OSRM_CFLAGS := $(shell PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) $(PKG_CONFIG) --cflags libosrm 2>/dev/null)
