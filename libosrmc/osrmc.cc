@@ -1564,6 +1564,9 @@ osrmc_route_params_set_overview(osrmc_route_params_t params, overview_type_t ove
     case OVERVIEW_FALSE:
       params_typed->overview = osrm::RouteParameters::OverviewType::False;
       break;
+    case OVERVIEW_BY_LEGS:
+      params_typed->overview = osrm::RouteParameters::OverviewType::ByLegs;
+      break;
     default:
       osrmc_set_error(error, "InvalidArgument", "Unknown overview type");
       return;
@@ -1592,6 +1595,9 @@ osrmc_route_params_get_overview(osrmc_route_params_t params, overview_type_t* ou
       break;
     case osrm::RouteParameters::OverviewType::False:
       *out_overview = OVERVIEW_FALSE;
+      break;
+    case osrm::RouteParameters::OverviewType::ByLegs:
+      *out_overview = OVERVIEW_BY_LEGS;
       break;
     default:
       break;
@@ -2316,6 +2322,9 @@ osrmc_match_params_set_overview(osrmc_match_params_t params, overview_type_t ove
     case OVERVIEW_FALSE:
       params_typed->overview = osrm::RouteParameters::OverviewType::False;
       break;
+    case OVERVIEW_BY_LEGS:
+      params_typed->overview = osrm::RouteParameters::OverviewType::ByLegs;
+      break;
     default:
       osrmc_set_error(error, "InvalidArgument", "Unknown overview type");
       return;
@@ -2344,6 +2353,9 @@ osrmc_match_params_get_overview(osrmc_match_params_t params, overview_type_t* ou
       break;
     case osrm::RouteParameters::OverviewType::False:
       *out_overview = OVERVIEW_FALSE;
+      break;
+    case osrm::RouteParameters::OverviewType::ByLegs:
+      *out_overview = OVERVIEW_BY_LEGS;
       break;
     default:
       break;
@@ -2914,6 +2926,9 @@ osrmc_trip_params_set_overview(osrmc_trip_params_t params, overview_type_t overv
     case OVERVIEW_FALSE:
       params_typed->overview = osrm::RouteParameters::OverviewType::False;
       break;
+    case OVERVIEW_BY_LEGS:
+      params_typed->overview = osrm::RouteParameters::OverviewType::ByLegs;
+      break;
     default:
       osrmc_set_error(error, "InvalidArgument", "Unknown overview type");
       return;
@@ -2942,6 +2957,9 @@ osrmc_trip_params_get_overview(osrmc_trip_params_t params, overview_type_t* out_
       break;
     case osrm::RouteParameters::OverviewType::False:
       *out_overview = OVERVIEW_FALSE;
+      break;
+    case osrm::RouteParameters::OverviewType::ByLegs:
+      *out_overview = OVERVIEW_BY_LEGS;
       break;
     default:
       break;

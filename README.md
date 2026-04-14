@@ -14,7 +14,7 @@ Originally forked from Daniel Hofmann's [`libosrmc`](https://github.com/daniel-j
 
 ## Versioning
 
-`libosrmc` uses aligned versioning with OSRM: `libosrmc X.Y.Z` requires OSRM `X.Y`. Patch versions are independent and indicate interface-only changes.
+`libosrmc` uses independent [semantic versioning](https://semver.org/), decoupled from OSRM's release numbering. The major version tracks breaking C API changes, minor versions add functionality, and patch versions indicate bug fixes.
 
 ## Build and Install
 

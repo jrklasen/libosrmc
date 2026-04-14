@@ -1,7 +1,7 @@
 # libosrmc Build Configuration
 
-VERSION_MAJOR = 26
-VERSION_MINOR = 4
+VERSION_MAJOR = 6
+VERSION_MINOR = 1
 VERSION_PATCH = 0
 
 PREFIX ?= /usr/local
